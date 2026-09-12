@@ -5,6 +5,9 @@
 3. parity: summary_prompt renders Honcho's prompt shape
 4. summary_scoring unit checks 5. train_lora data prep on a summary-shaped row (fake tokenizer)
 6. llm_backend estimate + mock OpenRouter round trip (skip with --quick)
+7. summary_chain step logic (parity of chunking / output_words / ids)
+8. $0 end-to-end: mock OpenRouter + mock Anthropic -> gen_sessions -> gen_summary_rejected ->
+   gen_summary_chosen (run and submit/fetch) -> build_summary_dataset -> eval_summary (skip with --quick)
 """
 import json
 import os
@@ -140,6 +143,138 @@ if not QUICK:
         ok("mock OpenRouter answers the summary prompt shape", bool(data.get("choices")))
     finally:
         srv.terminate()
+
+print("== 7. summary_chain ==")
+import summary_chain as sc  # noqa: E402
+def _chain(n):
+    return sc.with_chunks({"id": "cX", "messages": [{"seq": i, "peer": "A" if i % 2 else "B", "text": f"m{i} " * 30} for i in range(1, n + 1)],
+                           "facts": [], "changes": [], "distractors": [], "peers": [{"name": "A"}, {"name": "B"}]})
+ok("60 msgs -> 3 short + 1 long", sc.steps(_chain(60)) == [("short", 0), ("short", 1), ("short", 2), ("long", 0)])
+ok("80 msgs -> 4 short + 1 long", sc.n_steps(_chain(80), "short") == 4 and sc.n_steps(_chain(80), "long") == 1)
+ok("120 msgs -> 6 short + 2 long, long 1 covers 61-120", sc.n_steps(_chain(120), "long") == 2 and sc.chain_view(_chain(120), "long")["chunks"][1]["seqs"] == [61, 120])
+st0 = sc.build_step(_chain(60), "short", 0, "")
+st1 = sc.build_step(_chain(60), "short", 1, "prev " * 400)
+ok("short chunk 0 limit from message tokens only", st0["output_words"] == sp.output_words_short(sum(be_te(m["text"]) for m in _chain(60)["messages"][:20])) if (be_te := __import__("llm_backend").tokens_estimate) else False)
+ok("previous summary tokens raise the short limit toward the cap", st1["output_words"] > st0["output_words"] and st1["output_words"] <= 750)
+ok("short step sends max_tokens 1000, long 4000 and 3000 words", st0["max_tokens"] == 1000 and sc.build_step(_chain(60), "long", 0, "")["max_tokens"] == 4000
+   and sc.build_step(_chain(60), "long", 0, "")["output_words"] == 3000)
+ok("operator caps flow through", sc.build_step(_chain(60), "long", 0, "", max_tokens_long=2667)["output_words"] == 2000)
+ok("step prompt is the parity prompt", st1["prompt"] == sp.build_messages("short", sc.step_messages(_chain(60), "short", 1), "prev " * 400, st1["output_words"])[0]["content"])
+ok("no previous -> NO_PREVIOUS_SUMMARY sentence", sp.NO_PREVIOUS_SUMMARY in st0["prompt"] and st0["previous_summary"] == "")
+ok("step ids round-trip", sc.parse_step_id("c00003-s2b") == ("c00003", "short", 2, "b") and sc.parse_step_id("c00003-l1") == ("c00003", "long", 1, "")
+   and sc.step_id("c00003", "long", 1) == "c00003-l1")
+walked = sc.walk(_chain(60), "short", lambda step: {"summary": "", "reasoning": "answer in think"}, answer_from_reasoning=False)
+ok("walk: empty content chains an empty previous and flags answered_in_thinking", len(walked) == 3 and all(r["answered_in_thinking"] for r in walked)
+   and sp.NO_PREVIOUS_SUMMARY in sc.build_step(_chain(60), "short", 1, walked[0]["summary"])["prompt"])
+walked2 = sc.walk(_chain(60), "short", lambda step: {"summary": "", "reasoning": "answer in think"}, answer_from_reasoning=True)
+ok("walk --answer-from-reasoning scores and chains the reasoning text", walked2[1]["previous_summary"] == "answer in think" and walked2[1]["words"] == 3)
+import mock_or_server as mo  # noqa: E402
+import gen_sessions as gs  # noqa: E402
+meta = gs.plan(1, 0, 7)[0]
+mc = mo.mock_chain(80, 3, three=True)
+row, why = gs.validate(mc, dict(meta, category="dense-facts", shape="three-people"))
+ok("gen_sessions.validate accepts the mock chain and cuts 80 -> 4 short chunks + 1 long", row is not None and len(row["chunks"]) == 4 and len(row["chunks_long"]) == 1, why)
+bad = dict(mc, facts=mc["facts"] + [{"id": "zz", "text": "never said", "first_seq": 3, "kind": "x"}], distractors=[{"text": "Lake Vesna"}, {"text": "Lake Orrin"}])
+row2, _ = gs.validate(bad, dict(meta, category="dense-facts", shape="three-people"))
+ok("validate drops non-verbatim facts and distractors that appear in the text", row2 is not None and not any(f["text"] == "never said" for f in row2["facts"])
+   and [d["text"] for d in row2["distractors"]] == ["Lake Orrin"])
+ok("validate rejects < 60 messages", gs.validate(dict(mc, messages=mc["messages"][:59]), meta)[0] is None)
+ok("category mix covers all six in 20 rows", {m["category"] for m in gs.plan(20, 0, 7)} == set(gs.CATEGORIES))
+ok("no real-deployment seeds: no name list in gen_sessions", not re.search(r"^NAMES\s*=", defs["gen_sessions.py"], re.M))
+
+if not QUICK:
+    print("== 8. end-to-end on mocks ($0) ==")
+    import shutil
+    import tempfile
+    tmp = tempfile.mkdtemp(prefix="summary-verify-")
+    p_or, p_an = 18600 + int(time.time()) % 100, 18700 + int(time.time()) % 100
+    srv_or = subprocess.Popen([sys.executable, "mock_or_server.py", str(p_or)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    srv_an = subprocess.Popen([sys.executable, "mock_anth_batch.py", str(p_an)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    env = dict(os.environ, OPENROUTER_BASE=f"http://127.0.0.1:{p_or}/v1", OPENROUTER_API_KEY="mock",
+               ANTHROPIC_API_BASE=f"http://127.0.0.1:{p_an}", ANTHROPIC_API_KEY="mock", DIALECTIC_RESULTS_DIR=os.path.join(tmp, "results"))
+
+    def sh(*args, expect=0):
+        r = subprocess.run([sys.executable, *args], env=env, capture_output=True, text=True, timeout=600)
+        if expect is not None and r.returncode != expect:
+            print("      $", " ".join(args)); print("      " + (r.stdout + r.stderr)[-1500:].replace("\n", "\n      "))
+        return r
+    try:
+        for _ in range(50):
+            try:
+                urllib.request.urlopen(f"http://127.0.0.1:{p_or}/v1/models", timeout=0.5); break
+            except Exception:
+                time.sleep(0.1)
+        chains = os.path.join(tmp, "chains.jsonl")
+        r = sh("gen_sessions.py", "run", "--n", "4", "--model", "deepseek", "--out", chains, "--concurrency", "2")
+        rows = [json.loads(l) for l in open(chains)] if os.path.exists(chains) else []
+        ok("gen_sessions run: 4 good chains", r.returncode == 0 and len(rows) == 4 and not any(r_.get("__failed__") for r_ in rows), r.stdout[-300:])
+        r = sh("gen_sessions.py", "run", "--n", "4", "--model", "deepseek", "--out", chains)
+        ok("gen_sessions run is resume-safe (nothing to do)", "0 chains to generate" in r.stdout, r.stdout[-200:])
+        r = sh("gen_sessions.py", "estimate", "--n", "30", "--model", "opus")
+        ok("gen_sessions estimate prints sync and batch", "batch" in r.stdout and "sync" in r.stdout and "$" in r.stdout)
+        rej = os.path.join(tmp, "rejected.jsonl")
+        r = sh("gen_summary_rejected.py", "--chains", chains, "--out", rej, "--base", f"http://127.0.0.1:{p_or}/v1", "--model", "mock", "--concurrency", "2")
+        rrows = [json.loads(l) for l in open(rej)] if os.path.exists(rej) else []
+        n_steps = sum(len(sc.steps(sc.with_chunks(c))) for c in rows)
+        ok(f"gen_summary_rejected: one scored row per step ({n_steps})", r.returncode == 0 and len(rrows) == n_steps and all("score" in x for x in rrows), r.stdout[-300:])
+        ok("rejected rows chain their own previous summary", any(x["k"] >= 1 and x["previous_summary"] for x in rrows))
+        ok("mock summaries cover the ledger", all((x["score"].get("fact_coverage_new") or 1.0) >= 0.99 for x in rrows))
+        r = sh("gen_summary_rejected.py", "--chains", chains, "--out", rej, "--base", f"http://127.0.0.1:{p_or}/v1", "--model", "mock")
+        ok("gen_summary_rejected is resume-safe", "0 chain-kinds" in r.stdout, r.stdout[-200:])
+        rej_t = os.path.join(tmp, "rejected_thinker.jsonl")
+        r = sh("gen_summary_rejected.py", "--chains", chains, "--out", rej_t, "--base", f"http://127.0.0.1:{p_or}/v1", "--model", "mock-thinker", "--only", rows[0]["id"], "--kind", "short")
+        trows = [json.loads(l) for l in open(rej_t)]
+        ok("answered-inside-thinking is recorded (empty content, reasoning_chars > 0)", all(x["answered_in_thinking"] and x["words"] == 0 and x["reasoning_chars"] > 0 for x in trows), str(trows[:1])[:200])
+        cho = os.path.join(tmp, "chosen.jsonl")
+        r = sh("gen_summary_chosen.py", "estimate", "--chains", chains, "--model", "opus", "--rejected", rej)
+        ok("gen_summary_chosen estimate", r.returncode == 0 and "base-prev" in r.stdout and "$" in r.stdout, r.stdout[-300:])
+        r = sh("gen_summary_chosen.py", "run", "--chains", chains, "--model", "deepseek", "--out", cho, "--rejected", rej, "--base-prev-share", "0.5", "--concurrency", "2")
+        crows = [json.loads(l) for l in open(cho)] if os.path.exists(cho) else []
+        clean = [x for x in crows if x["variant"] == "clean"]
+        bp = [x for x in crows if x["variant"] == "base_prev"]
+        ok(f"gen_summary_chosen run: every step clean ({len(clean)}/{n_steps}) plus base-prev variants ({len(bp)})",
+           r.returncode == 0 and len(clean) == n_steps and len(bp) > 0 and not any(x.get("__failed__") for x in crows), r.stdout[-400:])
+        ok("base-prev variant's previous summary is the rejected k-1 output",
+           all(x["previous_summary"] == next(y["summary"] for y in rrows if y["id"] == x["previous_from"].split(":")[1]) for x in bp))
+        ok("clean variant's previous summary is the chosen k-1 output",
+           all(x["previous_summary"] == next(y["summary"] for y in clean if y["id"] == x["previous_from"].split(":")[1]) for x in clean if x["k"] >= 1))
+        cho2 = os.path.join(tmp, "chosen_batch.jsonl")
+        r = sh("gen_summary_chosen.py", "submit", "--chains", chains, "--model", "opus", "--out", cho2, "--rejected", rej)
+        ok("chosen submit: first wave = k=0 steps + ready base-prev", r.returncode == 0 and "wave" in r.stdout and "manifest" in r.stdout, r.stdout[-300:])
+        r = sh("gen_summary_chosen.py", "fetch", "--waves", "--poll-interval", "0")
+        crows2 = [json.loads(l) for l in open(cho2)] if os.path.exists(cho2) else []
+        ok("chosen fetch --waves completes every step through the batch mock", r.returncode == 0 and len([x for x in crows2 if x["variant"] == "clean"]) == n_steps
+           and "all done" in r.stdout, r.stdout[-400:])
+        r = sh("gen_summary_chosen.py", "status")
+        ok("chosen status lists ended batches", r.returncode == 0 and "ended" in r.stdout, r.stdout[-200:])
+        ds = os.path.join(tmp, "dataset")
+        r = sh("build_summary_dataset.py", "--chains", chains, "--chosen", cho, "--rejected", rej, "--out", ds, "--eval-frac", "0.25")
+        tr = [json.loads(l) for l in open(ds + "_train.sft.jsonl")]; ev = [json.loads(l) for l in open(ds + "_eval.sft.jsonl")]
+        dp = [json.loads(l) for l in open(ds + "_train.dpo.jsonl")] + [json.loads(l) for l in open(ds + "_eval.dpo.jsonl")]
+        ok("build_summary_dataset: SFT rows written, eval chains disjoint", r.returncode == 0 and tr and ev and not ({x["chain"] for x in tr} & {x["chain"] for x in ev}), r.stdout[-400:])
+        ok("SFT row = exact Honcho prompt + chosen, no system turn", all(len(x["messages"]) == 2 and x["messages"][0]["role"] == "user"
+           and "<previous_summary>" in x["messages"][0]["content"] and x["messages"][1]["role"] == "assistant" for x in tr))
+        ok("DPO pairs exist and share the prompt with the rejected side (k=0 or base-prev)", dp and all(x["k"] == 0 or x["id"].endswith("b") for x in dp), str(len(dp)))
+        ok("kept rows are under 0.9x the limit", all(len(x["messages"][1]["content"].split()) <= 0.9 * int(re.search(r"Hard limit: (\d+)", x["messages"][0]["content"]).group(1)) for x in tr + ev))
+        ev_out = os.path.join(tmp, "eval_mock.jsonl")
+        r = sh("eval_summary.py", "--chains", chains, "--ids-from", ds + "_eval.sft.jsonl", "--model", "mock", "--base", f"http://127.0.0.1:{p_or}/v1", "--out", ev_out)
+        summ = json.load(open(os.path.join(tmp, "eval_mock.summary.json"))) if os.path.exists(os.path.join(tmp, "eval_mock.summary.json")) else {}
+        ok("eval_summary run writes per-kind aggregates over the eval chains only", r.returncode == 0 and summ.get("short", {}).get("n") == sum(sc.n_steps(sc.with_chunks(c), "short") for c in rows if c["id"] in {x["chain"] for x in ev})
+           and summ.get("long") is not None, r.stdout[-400:] + r.stderr[-400:])
+        ev_b = os.path.join(tmp, "eval_bullety.jsonl")
+        r = sh("eval_summary.py", "--chains", chains, "--ids-from", ds + "_eval.sft.jsonl", "--model", "mock-bullety", "--base", f"http://127.0.0.1:{p_or}/v1", "--out", ev_b, "--kind", "short")
+        r = sh("eval_summary.py", "compare", ev_out, ev_b)
+        ok("eval_summary compare shows the bullet rows of the bullety model", r.returncode == 0 and "bullet_rows" in r.stdout and json.load(open(os.path.join(tmp, "eval_bullety.summary.json")))["short"]["bullet_rows"] > 0, r.stdout[-400:])
+        r = sh("eval_summary.py", "rescore", ev_out, "--chains", chains)
+        ok("eval_summary rescore", r.returncode == 0 and json.load(open(os.path.join(tmp, "eval_mock.summary.json"))).get("rescored") is True, r.stdout[-200:])
+        # the trainer's data prep accepts the built rows
+        samples, dropped, kinds = td.prepare_sft(tr, FakeTok(), 100000)
+        ok("train_lora.prepare_sft on the built SFT rows", dropped == 0 and kinds == {"answer": len(tr), "tool": 0})
+        r = sh("train_lora.py", "--stage", "check", "--model", "/nonexistent", "--data", ds + "_train.sft.jsonl", expect=None)
+        ok("train_lora --stage check runs on the dataset shape (fails only on the missing tokenizer)", "not implemented" not in (r.stdout + r.stderr))
+    finally:
+        srv_or.terminate(); srv_an.terminate()
+        shutil.rmtree(tmp, ignore_errors=True)
 
 print()
 if FAILS:

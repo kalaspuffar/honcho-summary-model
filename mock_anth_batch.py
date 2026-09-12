@@ -10,8 +10,8 @@ Endpoints (real response shapes as parsed by llm_backend.py):
   POST /v1/messages/batches                -> batch object, in_progress
   GET  /v1/messages/batches/{id}           -> ended after the first poll
   GET  /v1/messages/batches/{id}/results   -> JSONL {custom_id, result:{type:"succeeded", message:{...}}}
-Content is chosen from the request's system text exactly like mock_or_server.py (context JSON
-for the context generator, {"answer": ...} for the teacher).
+Content is chosen from the request text exactly like mock_or_server.py (chain JSON for gen_sessions,
+a summary for the Honcho prompt, context JSON / {"answer": ...} for the dialectic shapes).
 """
 import json
 import re
@@ -33,6 +33,15 @@ def _content_for(params):
     # reuse the OpenAI mock's decision logic through a tiny fake request
     class Fake:
         pass
+    user_all = "\n".join(m.get("content", "") for m in msgs if m.get("role") == "user" and isinstance(m.get("content"), str))
+    if "fact ledger" in system:
+        with mo.LOCK:
+            mo.COUNTER[0] += 1
+            k = mo.COUNTER[0]
+        mn = re.search(r"exactly (\d+) messages", user_all)
+        return json.dumps(mo.mock_chain(int(mn.group(1)) if mn else 60, k, three="three-people" in user_all))
+    if "<previous_summary>" in user_all:
+        return mo.mock_summary(user_all, bullets="bullety" in str(params.get("model", "")), verb="mentioned" if "reference summariser" in system else "said")
     if "synthetic training data" in system:
         with mo.LOCK:
             mo.COUNTER[0] += 1
