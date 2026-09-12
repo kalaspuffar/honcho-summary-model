@@ -1,0 +1,7 @@
+# Honcho summary model. FROM points at the GGUF from `train_lora.py --stage export`.
+# No TEMPLATE line on purpose: Ollama uses its built-in qwen3.5 renderer; the model closes the
+# think block itself (served-prompt encoding in train_lora.encode_example). Temperature: summaries
+# are long narratives — test 0.1 vs 0.7 in Phase 0 (PLAN §4) before fixing this value.
+FROM runs/v1-gguf/unsloth.Q4_K_M.gguf
+PARAMETER temperature 0.3
+PARAMETER num_ctx 16384
