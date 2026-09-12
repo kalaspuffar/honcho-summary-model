@@ -14,7 +14,8 @@ Phase 0 (no training):
 1. Point Honcho's summary slot at the base and at the dialectic model
    (`SUMMARY_MODEL_CONFIG__TRANSPORT=openai`, `…__MODEL=qwen3.5:9b` / `dialectic_s50`,
    `…__OVERRIDES__BASE_URL=http://node7.ea.org:11434/v1`), drive a session past 20 and 60
-   messages, read the stored short and long summaries (`get_session_context` returns them).
+   messages, read the stored short and long summaries (`GET /v3/workspaces/{ws}/sessions/{id}/summaries`).
+   This is a plumbing check only (limits, chaining, empties); nothing read here enters the dataset.
 2. Run the offline eval of §5 on ~30 synthetic sessions with the base.
 3. Look for the failure classes that would justify training:
    - **empty / answered-inside-thinking** — the base at temperature 0.1 wrote its dialectic
@@ -58,6 +59,13 @@ behaviour. "Terse" is *not* the goal this time — a short summary may legitimat
 The goal is *dense, complete, within limit, grounded*.
 
 ## 2. What to generate
+
+**Privacy rule (Daniel, 2026-09-12): the training and eval data contain nothing from the real
+deployment.** No real names, sessions, topics, summaries or interests — not as seeds, not as
+examples, not as domain lists. The generator invents personas and domains itself (fiction,
+hobbies, work life, travel, cooking, sports, small-business admin, study, health-of-invented-people,
+etc.). Real Honcho data is touched only by the *live* checks (§0.1, §6), read-only, and never
+written into `data/`. The model learns *how to summarise*, not *what* anyone talked about.
 
 Everything is synthetic and ledger-based so it can be scored automatically, as in the dialectic
 project (required/forbidden facts). Three stages, same CLI shape as here (`estimate/run/submit/

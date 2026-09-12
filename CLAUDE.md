@@ -19,6 +19,9 @@ Rules that carry over verbatim:
   Anthropic sync + batches, manifests, resume-safe JSONL). Generation scripts share its CLI shape
   `estimate|run|submit|status|fetch`. Estimates always printed; batches never abort.
 - **Rejected comes from the base model**, never a teacher. Failure markers `__FAILED__`.
+- **No real data.** Personas, domains and conversations are invented by the generator. Nothing from
+  Daniel's Honcho deployment (names, topics, sessions, summaries) is used as seed, example or domain
+  list. Live checks read Honcho; they never write into `data/`.
 - Training gotchas: see TRAIN.md (base checkpoint, served-prompt encoding, sequence length).
 
 Stage order (PLAN §9): Phase 0 measure → 30-chain smoke → 150 chains → combined run with the
