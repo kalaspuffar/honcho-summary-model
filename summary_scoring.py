@@ -18,7 +18,8 @@ The dialectic scorer's "first two tokens anywhere" rule flagged "Fenna's friend 
 on "Fenna" + "s", and "the city of Ashvale" on "the" + "city". Number words (one..twenty, tens) are
 normalised to digits so "nine slats" == "9 slats" and so a number word is a mandatory anchor.
 Distractors are near-misses of true facts by construction ("seven slats per side" vs "nine slats per
-side"), so fabrication uses strict=True: every anchor must be present, within WINDOW_STRICT tokens.
+side"), so fabrication uses strict=True: every anchor must be present, within WINDOW_STRICT tokens, and a
+two-anchor distractor needs its anchors adjacent in order ("prints at 10 by 15 inches" is not "fifteen prints").
 """
 import re
 
@@ -80,6 +81,10 @@ def has_fact(text: str, fact: str, ignore=(), strict=False) -> bool:
     numeric = [a for a in anc if any(ch.isdigit() for ch in a)]
     toks = TOKEN.findall(t)
     anc_set = set(anc)
+    if strict and len(anc) == 2:
+        # a two-anchor distractor ("fifteen prints") is asserted only if its anchors are adjacent in order
+        # (one word may sit between: "15 glossy prints"); "prints at 10 by 15 inches" is a size, not a count
+        return any(toks[i] == anc[0] and anc[1] in toks[i + 1:i + 3] for i in range(len(toks)))
     span = WINDOW_STRICT if strict else WINDOW
     for i in range(len(toks)):
         if toks[i] not in anc_set:

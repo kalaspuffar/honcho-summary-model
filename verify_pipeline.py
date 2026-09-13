@@ -105,6 +105,9 @@ fp = {"peers": [], "facts": [], "changes": [], "distractors": [{"text": "fifteen
 ok("matcher: strict window — '12 prints ... 15 inches' is not 'fifteen prints', 'fifteen prints on the wall' is",
    not ss.score_summary(fp, 0, "mounting 12 potential prints (reduced to 8 at 10 by 15 inches) on boards", 300)["fabrication"]
    and ss.score_summary(fp, 0, "she hung fifteen prints on the wall", 300)["fabrication"])
+ok("matcher: two-anchor distractor needs adjacency — a print size is not a print count",
+   not ss.has_fact("mounting 12 prints at 10 by 15 inches", "fifteen prints", strict=True)
+   and ss.has_fact("she hung 15 glossy prints", "fifteen prints", strict=True) and ss.has_fact("fifteen prints were hung", "15 prints", strict=True))
 ok("matcher: a bare name fact matches by substring", ss.has_fact("Nils arrived late", "Nils") and not ss.has_fact("Nora arrived late", "Nils"))
 agg = ss.aggregate([r0, r1, r1b])
 ok("aggregate", agg["n"] == 3 and agg["over_limit_rows"] == 0 and agg["median_fact_coverage_new"] == 1.0)
