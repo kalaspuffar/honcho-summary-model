@@ -260,13 +260,16 @@ def invalidate_chain(chosen):
 
 
 def write_out(out, new_rows, chosen):
-    """merge_rows keeps a good row on disk over a new failure — right for retries, wrong for rows this
-    run has invalidated. Invalidated rows overwrite unless the same id was regenerated now."""
-    merged = {r["id"]: r for r in be.merge_rows(out, new_rows)}
-    fresh = {r["id"] for r in new_rows}
-    for r in chosen.values():
-        if be.failed(r) and r["id"] not in fresh:
-            merged[r["id"]] = r
+    """Merge this run's rows over the invalidated view of the file (not the raw disk rows: a row that
+    is over budget on disk carries no marker, and llm_backend.merge_rows would let it beat its own
+    compressed-but-still-failed retry forever — the wave-17 loop of 2026-09-13). A good row is kept
+    over a new failure; an invalidated row is always replaced, even by a failure with attempts+1."""
+    merged = dict(chosen)
+    for r in new_rows:
+        old = merged.get(r["id"])
+        if old is not None and not be.failed(old) and be.failed(r):
+            continue
+        merged[r["id"]] = r
     rows = sorted(merged.values(), key=lambda r: r["id"])
     be.write_jsonl(out, rows)
     return rows

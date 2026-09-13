@@ -236,6 +236,20 @@ ok("chosen: the last compress attempt may drop a tenth of the checklist, earlier
    and "LAST PASS" not in gc.job_for(_ch, "short", 1, "prev", "", _a, dict(_over, attempts=1))["system"])
 ok("chosen: a truncated or missing row gets a fresh write", "effort" not in gc.job_for(_ch, "short", 1, "prev", "", _a, None)
    and "effort" not in gc.job_for(_ch, "short", 1, "prev", "", _a, dict(_over, stop_reason="max_tokens")))
+import tempfile as _tf
+_wo = os.path.join(_tf.mkdtemp(), "c.jsonl")
+_disk = [{"id": "d-s0", "summary": "x " * 900, "words": 900, "output_words": 750, "stop_reason": "end_turn", "previous_from": None},
+         {"id": "d-s1", "summary": "ok.", "words": 1, "output_words": 750, "stop_reason": "end_turn", "previous_from": "chosen:d-s0"}]
+be.write_jsonl(_wo, _disk)
+_inv = gc.invalidate_chain({r["id"]: r for r in be.read_jsonl(_wo)})
+_retry = {"id": "d-s0", "summary": "x " * 800, "words": 800, "output_words": 750, "stop_reason": "end_turn", "attempts": 2, "previous_from": None,
+          "__failed__": "__FAILED__: over budget"}
+_after = {r["id"]: r for r in gc.write_out(_wo, [_retry], _inv)}
+ok("chosen: write_out lets a still-failing retry replace an unmarked over-budget disk row (attempts advance, no endless wave)",
+   _after["d-s0"]["attempts"] == 2 and _after["d-s0"]["words"] == 800 and be.failed(_after["d-s1"]) and "stale" in _after["d-s1"]["__failed__"])
+_good = {"id": "d-s0", "summary": "short.", "words": 1, "output_words": 750, "stop_reason": "end_turn", "attempts": 3, "previous_from": None}
+_after2 = {r["id"]: r for r in gc.write_out(_wo, [{**_good, "__failed__": "__FAILED__: x"}], {r["id"]: r for r in [_good]})}
+ok("chosen: write_out keeps a good row over a new failure", not be.failed(_after2["d-s0"]))
 ok("chosen: teacher budget is its own, not Honcho's max_tokens", gc.TEACHER_MAX_TOKENS["short"] >= 4000 and gc.TEACHER_MAX_TOKENS["long"] >= 8000)
 ok("no real-deployment seeds: no name list in gen_sessions", not re.search(r"^NAMES\s*=", defs["gen_sessions.py"], re.M))
 
