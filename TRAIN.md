@@ -46,3 +46,39 @@ Order (PLAN §9), every step resume-safe and preceded by its estimate:
    `--stage merge`, `--stage sample --open-think`, `--stage export`, `ollama create summary-v1 -f Modelfile`.
 6. `eval_summary.py` base (with `--answer-from-reasoning`) vs `summary-v1`, `compare`; then
    `honcho_summary_harness.py` on one eval chain against a live Honcho with `SUMMARY_MODEL_CONFIG__*` swapped.
+
+## Smoke run — 2026-09-13 (PASSED the PLAN §6 gate)
+
+| item | value |
+|---|---|
+| data | 94 train rows (74 short, 20 long) from 17 chains; 56 eval rows from 10 held-out chains, stratified by category, human peer names disjoint |
+| base | `/data/smoke/qwen35-9b-text`, `--load-bits 16 --max-seq 8192` (rows 890–5400 tokens, median 2022, none dropped) |
+| run | SFT 2 epochs, lr 2e-4, r=16, 48 steps, 8 min on the A6000 (6–10 s/step) |
+| eval loss | ep1 **0.4953**, ep2 0.5015 → epoch 1 (`checkpoint-24`) merged; epoch 2 already overfits slightly at 94 rows |
+| sample `--open-think` | raw output begins `\n</think>\n\n` + summary; no reasoning text |
+| export | `runs/v1-gguf` Q4_K_M → `ollama create summary-smoke -f Modelfile-smoke` |
+
+Offline eval, 10 eval chains / 50 steps, honest chaining, Honcho max_tokens 1000/4000, node7 Ollama
+(base column scored from its reasoning text — the base's `content` is empty on every short step):
+
+| short (40 steps) | base qwen3.5:9b | summary-smoke |
+|---|---|---|
+| over-limit rows | 10 (25 %) | **0** |
+| median limit ratio | 0.82 | 0.72 |
+| new-fact coverage (median) | 0.92 | **1.00** |
+| carried-fact coverage (median) | 0.49 | **0.85** |
+| fabrication rows | 0 | 0 |
+| bullets / think leaks / echoes | 40 / 39 / 33 | **0 / 0 / 0** |
+| answered in thinking / truncated | 40 / 39 | **0 / 0** |
+| median latency | 18.9 s | 13.4 s |
+
+| long (10 steps) | base | summary-smoke |
+|---|---|---|
+| new-fact coverage | 0.89 | **0.97** |
+| bullets / meta / think leaks / truncated | 3 / 1 / 3 / 8 | **0 / 0 / 0 / 0** |
+| median words | 1067 | 774 |
+| median latency | 72 s | 23.6 s |
+
+Weak spots to feed the 150-chain run: carry falls with k (c00006-s4 0.77, c00017-s4 0.64, c00022-s2 0.59);
+multi-peer chains are the weakest (new 0.67–0.92, carry 0.59–0.83; only 4 multi-peer rows in training);
+`latest_state` 0.0/0.5 on two long summaries (c00022-l0, c00018-l0) — superseded values in the long slot.
