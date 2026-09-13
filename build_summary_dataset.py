@@ -8,7 +8,7 @@ persona, emit SFT rows (PLAN §2.2 filters, §3 row shape).
 writes  data/dataset_train.sft.jsonl  {"id", "chain", "kind", "k", "variant", "category",
                                        "messages": [{"role":"user","content":<exact Honcho prompt>},
                                                     {"role":"assistant","content":<chosen>}]}
-        data/dataset_eval.sft.jsonl   held-out chains (no peer name shared with train), --eval-frac
+        data/dataset_eval.sft.jsonl   held-out chains (stratified by category; no human peer name shared with train), --eval-frac
         data/dataset_{train,eval}.dpo.jsonl  only with --rejected: {"id", "prompt": [user], "chosen", "rejected"}
              pairs share the SAME prompt: rejected step k vs the chosen base-previous variant of step k
              (its previous summary IS the base's k-1 output), plus step 0 (no previous) clean vs rejected.
@@ -73,19 +73,26 @@ def prompt_for(chain, row, mts, mtl):
 
 
 def split_by_persona(chains, eval_frac, seed):
-    """Chains whose (human) peer names never appear in the other half; the unit is the chain."""
+    """Held-out chains, stratified by category (every category appears on both sides when it has
+    >= 2 chains), then any train chain sharing a human peer name with the eval set moves to eval too.
+    The unit is the chain. (Smoke 2026-09-13: an unstratified draw put all 3 multi-peer chains in eval.)"""
     rnd = random.Random(seed)
-    ids = sorted(chains)
-    rnd.shuffle(ids)
-    n_eval = max(1, round(len(ids) * eval_frac)) if len(ids) > 1 else 0
+    by_cat = {}
+    for cid in sorted(chains):
+        by_cat.setdefault(chains[cid].get("category"), []).append(cid)
     eval_ids, eval_names = set(), set()
-    for cid in ids:
-        if len(eval_ids) >= n_eval:
-            break
-        eval_ids.add(cid); eval_names.update(n.lower() for n in sc.peer_names(chains[cid], humans_only=True))
-    # any train chain sharing a name with the eval set moves to eval too (disjoint personas)
+    for cat in sorted(by_cat):
+        ids = by_cat[cat]
+        rnd.shuffle(ids)
+        n_eval = min(len(ids) - 1, max(1, round(len(ids) * eval_frac))) if len(ids) > 1 else 0
+        for cid in ids[:n_eval]:
+            eval_ids.add(cid); eval_names.update(n.lower() for n in sc.peer_names(chains[cid], humans_only=True))
+    if not eval_ids and len(chains) > 1 and eval_frac > 0:      # every category a singleton: still hold something out
+        ids = sorted(chains); rnd.shuffle(ids)
+        for cid in ids[:max(1, round(len(ids) * eval_frac))]:
+            eval_ids.add(cid); eval_names.update(n.lower() for n in sc.peer_names(chains[cid], humans_only=True))
     moved = 0
-    for cid in ids:
+    for cid in sorted(chains):
         if cid not in eval_ids and eval_names & {n.lower() for n in sc.peer_names(chains[cid], humans_only=True)}:
             eval_ids.add(cid); moved += 1
     return eval_ids, moved

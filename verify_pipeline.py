@@ -326,6 +326,11 @@ if not QUICK:
         tr = [json.loads(l) for l in open(ds + "_train.sft.jsonl")]; ev = [json.loads(l) for l in open(ds + "_eval.sft.jsonl")]
         dp = [json.loads(l) for l in open(ds + "_train.dpo.jsonl")] + [json.loads(l) for l in open(ds + "_eval.dpo.jsonl")]
         ok("build_summary_dataset: SFT rows written, eval chains disjoint", r.returncode == 0 and tr and ev and not ({x["chain"] for x in tr} & {x["chain"] for x in ev}), r.stdout[-400:])
+        import build_summary_dataset as bd
+        _cs = {f"x{i}": {"id": f"x{i}", "category": ["a", "a", "a", "b", "b", "b"][i], "peers": [{"name": f"P{i}", "role": "user"}], "messages": []} for i in range(6)}
+        _ev, _ = bd.split_by_persona(_cs, 0.33, 7)
+        ok("build_summary_dataset: split is stratified — each category on both sides",
+           {_cs[c]["category"] for c in _ev} == {"a", "b"} and {_cs[c]["category"] for c in _cs if c not in _ev} == {"a", "b"})
         ok("SFT row = exact Honcho prompt + chosen, no system turn", all(len(x["messages"]) == 2 and x["messages"][0]["role"] == "user"
            and "<previous_summary>" in x["messages"][0]["content"] and x["messages"][1]["role"] == "assistant" for x in tr))
         ok("DPO pairs exist and share the prompt with the rejected side (k=0 or base-prev)", dp and all(x["k"] == 0 or x["id"].endswith("b") for x in dp), str(len(dp)))
