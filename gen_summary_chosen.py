@@ -24,6 +24,7 @@ Steps depend on the previous step, so:
   python3 gen_summary_chosen.py submit   --chains ... --model opus --out data/chosen.jsonl --rejected data/rejected.jsonl
   python3 gen_summary_chosen.py fetch    [--waves]        # fetch, then submit+fetch the next waves until done
   python3 gen_summary_chosen.py status
+  python3 gen_summary_chosen.py run --only c00000,c00001 ...      # pilot a few chains synchronously before a batch
 
 Output rows: {id, chain, category, kind, k, variant, previous_from, previous_summary, output_words,
 max_tokens (Honcho's, for the record), stop_reason, summary, words, attempts, teacher, score}. Failed rows
@@ -44,7 +45,7 @@ import summary_scoring as ss
 KIND = "chosen"
 TARGET_RATIO = 0.9    # train under the limit: models overshoot (PLAN §2.2)
 PROMPT_RATIO = 0.75   # the numeric budget the teacher is given; it overshoots an ask by 6–13 points (smoke: asked 85 %, wrote 91–105 %)
-MAX_ATTEMPTS = 3      # a step that is still over TARGET_RATIO after this many generations is given up (reported, not retried)
+MAX_ATTEMPTS = 2      # a step that is still over TARGET_RATIO after this many generations is given up (reported, not retried)
 # The teacher's own output budget. NOT Honcho's max_tokens: on Claude 5 the thinking tokens count against
 # max_tokens, and the 2026-09-13 smoke sent 1000 for short steps — 60 % of the k>=1 short summaries were cut
 # mid-sentence, always losing the newest chunk (chronological order puts it last). The word limit lives in
@@ -229,7 +230,7 @@ def write_out(out, new_rows, chosen):
 
 
 def _setup(a):
-    chains = sc.load_chains(a.chains)
+    chains = sc.load_chains(a.chains, set(a.only.split(",")) if getattr(a, "only", "") else None)
     rejected = load_rejected(a.rejected)
     out = a.out or os.path.join(os.path.dirname(a.chains), "chosen.jsonl")
     chosen = invalidate_chain({r["id"]: r for r in be.read_jsonl(out)})
@@ -455,6 +456,7 @@ def main():
         p.add_argument("--blind", action="store_true", help="no ledger checklist in the system prompt")
         p.add_argument("--max-tokens-short", type=int, default=sp.MAX_TOKENS_SHORT_DEFAULT, help="Honcho SUMMARY_MAX_TOKENS_SHORT")
         p.add_argument("--max-tokens-long", type=int, default=sp.MAX_TOKENS_LONG_DEFAULT, help="Honcho SUMMARY_MAX_TOKENS_LONG")
+        p.add_argument("--only", default="", help="comma-separated chain ids (pilot a few chains before a full batch)")
 
     p = sub.add_parser("estimate"); common(p); p.set_defaults(fn=cmd_estimate)
     p = sub.add_parser("run", help="concurrent chains, sequential steps (Anthropic sync or OpenRouter)"); common(p)

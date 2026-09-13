@@ -222,6 +222,7 @@ inv2 = gc.invalidate_chain(dict(ob))
 ok("chosen: over-budget row fails and its dependant goes stale; attempts default to 1",
    be.failed(inv2["c3-s0"]) and "over budget" in inv2["c3-s0"]["__failed__"] and be.failed(inv2["c3-s1"]) and inv2["c3-s1"]["attempts"] == 1)
 ok("chosen: a row at MAX_ATTEMPTS is given up, a first failure is not", gc.gave_up(inv2["c3-s2"]) and not gc.gave_up(inv2["c3-s0"]))
+ok("chosen: --only restricts the chains", [c["id"] for c in sc.load_chains(chains if False else "data/chains.jsonl", {"c00000"})] == ["c00000"] if os.path.exists("data/chains.jsonl") else True)
 ok("scorer: 1/15 is not the number 15", not ss.has_fact("whether 1/15 sec is too slow for her prints", "fifteen prints", strict=True)
    and ss.has_fact("she chose 1/15 sec", "1/15 sec"))
 ok("chosen: teacher budget is its own, not Honcho's max_tokens", gc.TEACHER_MAX_TOKENS["short"] >= 4000 and gc.TEACHER_MAX_TOKENS["long"] >= 8000)
