@@ -26,7 +26,9 @@ Steps depend on the previous step, so:
   python3 gen_summary_chosen.py status
 
 Output rows: {id, chain, category, kind, k, variant, previous_from, previous_summary, output_words,
-max_tokens, summary, words, teacher, score}. Failed rows carry "__failed__" and are retried by a re-run.
+max_tokens (Honcho's, for the record), stop_reason, summary, words, teacher, score}. Failed rows carry
+"__failed__" and are retried by a re-run; a row cut at the teacher's token budget is failed, and every
+later step built on it is marked stale and redone too (dependency order, wave by wave).
 """
 import argparse
 import hashlib
@@ -40,6 +42,12 @@ import summary_scoring as ss
 
 KIND = "chosen"
 TARGET_RATIO = 0.9    # train under the limit: models overshoot (PLAN §2.2)
+PROMPT_RATIO = 0.85   # what the teacher is told to aim for (it counts words loosely; 21/155 smoke rows landed in 0.9–1.0)
+# The teacher's own output budget. NOT Honcho's max_tokens: on Claude 5 the thinking tokens count against
+# max_tokens, and the 2026-09-13 smoke sent 1000 for short steps — 60 % of the k>=1 short summaries were cut
+# mid-sentence, always losing the newest chunk (chronological order puts it last). The word limit lives in
+# the prompt and is enforced by the stage-4 filter; the token budget only has to be big enough.
+TEACHER_MAX_TOKENS = {"short": 8000, "long": 16000}
 
 SYSTEM = """You are the reference summariser whose outputs train a small model to summarise conversations
 for a memory system. The user message is the exact production prompt; answer it as the best possible
@@ -83,11 +91,11 @@ def checklist(chain, kind, k):
 
 def make_job(chain, kind, k, previous, variant, a):
     step = sc.build_step(chain, kind, k, previous, a.max_tokens_short, a.max_tokens_long)
-    system = SYSTEM.format(ratio=f"{int(TARGET_RATIO * 100)}%")
+    system = SYSTEM.format(ratio=f"{int(PROMPT_RATIO * 100)}%")
     if not a.blind:
         system += checklist(chain, kind, k)
     return {"custom_id": sc.step_id(chain["id"], kind, k, variant), "system": system, "user": step["prompt"],
-            "max_tokens": step["max_tokens"], "_step": step}
+            "max_tokens": TEACHER_MAX_TOKENS[kind], "_step": step}
 
 
 def _pick_base_prev(cid, kind, k, share):
@@ -101,8 +109,13 @@ def to_row(chain, kind, k, variant, previous_from, step, result, teacher):
            "previous_summary": step["previous_summary"], "output_words": step["output_words"],
            "max_tokens": step["max_tokens"], "teacher": teacher}
     text = (result.get("text") or "").strip()
+    row["stop_reason"] = result.get("stop_reason")
     if result.get("error") or not text:
         row.update(summary="", words=0, __failed__=f"__FAILED__: {result.get('error') or 'empty response'}")
+        return row
+    if row["stop_reason"] in ("max_tokens", "length"):
+        # a cut summary must not be trained on and must not feed the next step's previous summary
+        row.update(summary=text, words=ss.words(text), __failed__=f"__FAILED__: truncated at max_tokens ({ss.words(text)} words)")
         return row
     row.update(summary=text, words=ss.words(text), score=sc.score_step(chain, kind, k, text, step["output_words"]))
     return row
@@ -155,11 +168,48 @@ def report(rows, path):
 
 
 # ------------------------------------------------------------------ commands
+CUT_END = __import__("re").compile(r'[.!?"\u201d)\]]\s*$')
+
+
+def invalidate_chain(chosen):
+    """A step whose previous summary came from a failed (or invalidated) chosen row is stale: it was
+    built on text that will be regenerated. Mark it failed so it is redone in dependency order.
+    Rows written before stop_reason was recorded (the 2026-09-13 smoke) are failed when they end
+    mid-sentence — the signature of the max_tokens cut."""
+    for r in chosen.values():
+        if "stop_reason" not in r and not be.failed(r) and r.get("summary") and not CUT_END.search(r["summary"]):
+            r["__failed__"] = f"__FAILED__: legacy row cut mid-sentence ({r.get('words')} words)"
+    changed = True
+    while changed:
+        changed = False
+        for r in chosen.values():
+            if be.failed(r) or not (r.get("previous_from") or "").startswith("chosen:"):
+                continue
+            prev = chosen.get(r["previous_from"].split(":", 1)[1])
+            if prev is None or be.failed(prev):
+                r["__failed__"] = "__FAILED__: stale (previous summary was regenerated)"
+                changed = True
+    return chosen
+
+
+def write_out(out, new_rows, chosen):
+    """merge_rows keeps a good row on disk over a new failure — right for retries, wrong for rows this
+    run has invalidated. Invalidated rows overwrite unless the same id was regenerated now."""
+    merged = {r["id"]: r for r in be.merge_rows(out, new_rows)}
+    fresh = {r["id"] for r in new_rows}
+    for r in chosen.values():
+        if be.failed(r) and r["id"] not in fresh:
+            merged[r["id"]] = r
+    rows = sorted(merged.values(), key=lambda r: r["id"])
+    be.write_jsonl(out, rows)
+    return rows
+
+
 def _setup(a):
     chains = sc.load_chains(a.chains)
     rejected = load_rejected(a.rejected)
     out = a.out or os.path.join(os.path.dirname(a.chains), "chosen.jsonl")
-    chosen = {r["id"]: r for r in be.read_jsonl(out)}
+    chosen = invalidate_chain({r["id"]: r for r in be.read_jsonl(out)})
     return chains, rejected, out, chosen
 
 
@@ -240,8 +290,7 @@ def cmd_run(a):
                           f"{' bullets' if s['bullets'] else ''}{' meta' if s['meta'] else ''}", flush=True)
             if i % 5 == 0:
                 be.write_jsonl(out, sorted(be.merge_rows(out, new_rows), key=lambda r: r["id"]))
-    merged = sorted(be.merge_rows(out, new_rows), key=lambda r: r["id"])
-    be.write_jsonl(out, merged)
+    merged = write_out(out, new_rows, chosen)
     report(merged, out)
     print(f"usage-based spend ≈ ${spent[0]:.3f}" + (" (cost cap reached; rerun to resume)" if stop.is_set() else ""))
     return 0
@@ -326,8 +375,7 @@ def _fetch_one(path, poll, no_wait):
         rows.append(to_row(c, meta["kind"], meta["k"], meta["variant"], meta["previous_from"], step,
                            results.get(meta["id"], {"error": "no result for this id"}), m.get("model_alias", m["model"])))
     spent = sum(be.usage_usd(spec, r.get("usage") or {}, batch=True) for r in results.values())
-    merged = sorted(be.merge_rows(m["out"], rows), key=lambda r: r["id"])
-    be.write_jsonl(m["out"], merged)
+    merged = write_out(m["out"], rows, invalidate_chain({r["id"]: r for r in be.read_jsonl(m["out"])}))
     report(merged, m["out"])
     print(f"usage-based spend for this batch ≈ ${spent:.3f}")
     return m

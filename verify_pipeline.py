@@ -202,6 +202,19 @@ ok("validate drops non-verbatim facts and distractors that appear in the text", 
    and [d["text"] for d in row2["distractors"]] == ["Lake Orrin"])
 ok("validate rejects < 60 messages", gs.validate(dict(mc, messages=mc["messages"][:59]), meta)[0] is None)
 ok("category mix covers all six in 20 rows", {m["category"] for m in gs.plan(20, 0, 7)} == set(gs.CATEGORIES))
+import gen_summary_chosen as gc  # noqa: E402
+import llm_backend as be  # noqa: E402,F811
+legacy = {"c1-s0": {"id": "c1-s0", "summary": "Complete sentence.", "words": 2, "previous_from": None},
+          "c1-s1": {"id": "c1-s1", "summary": "Cut mid-sentence and the new chunk is", "words": 7, "previous_from": "chosen:c1-s0"},
+          "c1-s2": {"id": "c1-s2", "summary": "Fine on its own.", "words": 4, "previous_from": "chosen:c1-s1"},
+          "c1-s2b": {"id": "c1-s2b", "summary": "Fine too.", "words": 2, "previous_from": "rejected:c1-s1"},
+          "c2-s0": {"id": "c2-s0", "summary": "Start.", "words": 1, "previous_from": None, "stop_reason": "end_turn"},
+          "c2-s1": {"id": "c2-s1", "summary": 'She said "done."', "words": 3, "previous_from": "chosen:c2-s0", "stop_reason": "end_turn"}}
+inv = gc.invalidate_chain(dict(legacy))
+ok("chosen: legacy cut row fails, its dependants go stale, base-prev and complete rows survive",
+   be.failed(inv["c1-s1"]) and "cut" in inv["c1-s1"]["__failed__"] and be.failed(inv["c1-s2"]) and "stale" in inv["c1-s2"]["__failed__"]
+   and not be.failed(inv["c1-s2b"]) and not be.failed(inv["c1-s0"]) and not be.failed(inv["c2-s1"]))
+ok("chosen: teacher budget is its own, not Honcho's max_tokens", gc.TEACHER_MAX_TOKENS["short"] >= 4000 and gc.TEACHER_MAX_TOKENS["long"] >= 8000)
 ok("no real-deployment seeds: no name list in gen_sessions", not re.search(r"^NAMES\s*=", defs["gen_sessions.py"], re.M))
 
 if not QUICK:
