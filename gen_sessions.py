@@ -118,13 +118,15 @@ def category_sequence():
 def plan(n, start, seed):
     rnd = random.Random(seed)
     cats = category_sequence()
+    themes = THEMES[:]
+    rnd.shuffle(themes)                       # cycle a shuffled list: no repeated theme within len(THEMES) rows
     rows = []
     for i in range(n):
         cat = cats[i % len(cats)]
         shape = "three-people" if cat == "multi-peer" else rnd.choice(SHAPES)
         n_peers = 3 if shape == "three-people" else 2
         rows.append({"id": f"c{start + i:05d}", "category": cat, "shape": shape,
-                     "n_messages": rnd.choice(LENGTHS), "theme": rnd.choice(THEMES),
+                     "n_messages": rnd.choice(LENGTHS), "theme": themes[i % len(themes)],
                      "letters": " and ".join(rnd.sample(LETTERS, n_peers))})
     return rows
 
@@ -134,7 +136,7 @@ def make_job(meta):
                          shape=meta["shape"], theme=meta["theme"], letters=meta["letters"],
                          facts_hint=FACTS_HINT[meta["category"]])
     return {"custom_id": meta["id"], "system": SYSTEM, "user": user,
-            "max_tokens": min(32000, meta["n_messages"] * 120 + 4000)}
+            "max_tokens": min(32000, meta["n_messages"] * 160 + 6000)}     # c00009 (Phase 0) ran out at 120/msg
 
 
 def out_tokens(meta):
@@ -170,6 +172,8 @@ def validate(obj, meta):
         m["seq"] = i
         if m["peer"] not in names:
             peers.append({"name": m["peer"], "role": "peer", "bio": ""}); names.add(m["peer"])
+    speakers = {m["peer"] for m in msgs}
+    peers = [p for p in peers if p["name"] in speakers]      # c00008 (Phase 0) listed a "Lubna_placeholder" that never spoke
     if len(peers) < 2:
         return None, "fewer than two peers"
     facts, seen, dropped = [], set(), 0
@@ -221,14 +225,32 @@ def validate(obj, meta):
     return sc.with_chunks(row), ""
 
 
+def parse_chain_json(text: str):
+    """The whole reply as one JSON object, or (None, why). extract_json's fallback to the first
+    parsable inner object is wrong here: on a truncated reply it returns a *peer* (c00009, Phase 0)."""
+    t = re.sub(r"^```(?:json)?\s*", "", (text or "").strip())
+    t = re.sub(r"\s*```$", "", t).strip()
+    try:
+        obj = json.loads(t)
+    except json.JSONDecodeError:
+        obj = be.extract_json(t)
+        if not isinstance(obj, dict) or "messages" not in obj:
+            return None, "reply is not one JSON object (truncated? %d chars)" % len(t)
+    return obj, ""
+
+
 def to_row(meta, result):
     base = {"id": meta["id"], "category": meta["category"], "shape": meta["shape"]}
     if result.get("error") or not result.get("text"):
         return {**base, "__failed__": f"__FAILED__: {result.get('error') or 'empty response'}"}
-    row, why = validate(be.extract_json(result["text"]), meta)
-    if row is None:
-        return {**base, "__failed__": f"__FAILED__: invalid chain ({why})", "raw": result["text"][:3000]}
-    return row
+    obj, why = parse_chain_json(result["text"])
+    if obj is not None:
+        row, why = validate(obj, meta)
+        if row is not None:
+            return row
+    if result.get("stop_reason") in ("max_tokens", "length"):
+        why += f"; reply hit max_tokens ({result.get('stop_reason')})"
+    return {**base, "__failed__": f"__FAILED__: invalid chain ({why})", "raw": result["text"][:3000]}
 
 
 def report(rows, path):

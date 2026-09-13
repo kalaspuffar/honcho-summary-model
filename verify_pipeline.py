@@ -40,7 +40,7 @@ for f in sorted(os.listdir(HERE)):
 
 print("== 2. single prompt builder / single scorer ==")
 defs = {f: open(f).read() for f in os.listdir(HERE) if f.endswith(".py")}
-for rx in ("BULLET", "META", "THINK_LEAK", "NARRATION"):
+for rx in ("BULLET", "META", "THINK_LEAK", "NARRATION", "ECHO"):
     where = [f for f, s in defs.items() if re.search(rf"^{rx}\s*=", s, re.M)]
     ok(f"{rx} defined only in summary_scoring.py", where == ["summary_scoring.py"], str(where))
 where = [f for f, s in defs.items() if "You are a system that summarizes" in s and f != "verify_pipeline.py"]
@@ -84,6 +84,28 @@ ok("think leak flagged", ss.score_summary(chain, 0, "Thinking Process:\n1. read\
 ok("narration flagged and zeroes coverage", ss.score_summary(chain, 0, "I'll summarize the conversation now.", 300)["narration"]
    and ss.score_summary(chain, 0, "I'll summarize the conversation now.", 300)["fact_coverage_new"] == 0.0)
 ok("empty", ss.score_summary(chain, 0, "", 300)["empty"])
+ok("echo flagged", ss.score_summary(chain, 0, "There is no previous summary -- the messages are the beginning.\n\n<conversation>\nAnna: hi", 300)["echo"]
+   and not r0["echo"])
+pc = {"peers": [{"name": "Fenna"}, {"name": "Kestrel"}], "facts": [], "changes": [], "distractors": [{"text": "Fenna's friend Vera"}, {"text": "the city of Ashvale"}, {"text": "Batch nine"}],
+      "chunks": [{"k": 0, "seqs": [1, 20]}]}
+ok("matcher: peer name + possessive fragment are not evidence", not ss.score_summary(pc, 0, "Fenna tells Kestrel the emptiness feels odd.", 300)["fabrication"])
+ok("matcher: stopword + one anchor is not evidence", not ss.has_fact("They left the city at dawn.", "the city of Ashvale"))
+ok("matcher: distant co-occurrence is not evidence", not ss.has_fact("Beatriz names the batch Thistle. " + "word " * 30 + "Nine bottles were left.", "Batch nine"))
+ok("matcher: adjacent paraphrase counts", ss.has_fact("They agreed that Viktor will run the demo on Friday.", "let Viktor run the demo")
+   and ss.has_fact("Vera, a friend of Fenna, joins.", "Fenna's friend Vera", ignore={"Fenna"}))
+ok("matcher: the number is mandatory", ss.has_fact("she bought 4.2 kg of pilsner malt", "4.2 kilos of pilsner malt") and not ss.has_fact("she bought pilsner malt", "4.2 kilos of pilsner malt"))
+ok("matcher: thousands separators and curly quotes normalise", ss.has_fact("gross takings were £14380", "£14,380") and ss.has_fact("Fenna’s friend Vera came", "Fenna's friend Vera"))
+nm = {"peers": [{"name": "Priya"}], "facts": [{"id": "f1", "text": "Nine slats per side", "first_seq": 2, "kind": "number"}], "changes": [],
+      "distractors": [{"text": "seven slats per side"}, {"text": "Copenhagen office pilot"}], "chunks": [{"k": 0, "seqs": [1, 20]}]}
+rn = ss.score_summary(nm, 0, "Priya plans 9 slats per side; the pilot runs from the Lisbon office.", 300)
+ok("matcher: number words normalise (nine == 9) and a near-miss distractor is not a fabrication", rn["fact_coverage_new"] == 1.0 and not rn["fabrication"])
+ok("matcher: the near-miss IS a fabrication when actually asserted", ss.score_summary(nm, 0, "Priya plans seven slats per side.", 300)["fabrication"]
+   and ss.score_summary(nm, 0, "the Copenhagen office runs the pilot", 300)["fabrication"])
+fp = {"peers": [], "facts": [], "changes": [], "distractors": [{"text": "fifteen prints"}], "chunks": [{"k": 0, "seqs": [1, 20]}]}
+ok("matcher: strict window — '12 prints ... 15 inches' is not 'fifteen prints', 'fifteen prints on the wall' is",
+   not ss.score_summary(fp, 0, "mounting 12 potential prints (reduced to 8 at 10 by 15 inches) on boards", 300)["fabrication"]
+   and ss.score_summary(fp, 0, "she hung fifteen prints on the wall", 300)["fabrication"])
+ok("matcher: a bare name fact matches by substring", ss.has_fact("Nils arrived late", "Nils") and not ss.has_fact("Nora arrived late", "Nils"))
 agg = ss.aggregate([r0, r1, r1b])
 ok("aggregate", agg["n"] == 3 and agg["over_limit_rows"] == 0 and agg["median_fact_coverage_new"] == 1.0)
 

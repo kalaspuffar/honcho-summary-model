@@ -18,7 +18,7 @@ Filters on a chosen row (all must hold):
   fact_coverage_new  >= --min-coverage (0.9) when facts are due in this chunk
   fact_coverage_carry >= --min-coverage        when earlier facts are due (the merge metric)
   latest_state == 1.0 when any value has changed
-  fabrication False; bullets/meta/think_leak/narration False
+  fabrication False; bullets/meta/think_leak/narration/echo False
   words <= --max-ratio (0.9) * output_words
 The prompt is rebuilt from the chain + the stored previous_summary, so a row trains exactly what
 Honcho will send. Rows are never truncated here; train_lora.py drops rows above --max-seq.
@@ -39,7 +39,7 @@ def keep_reason(row, min_cov, max_ratio):
     s = row.get("score") or {}
     if s.get("empty"):
         return "empty"
-    for flag in ("bullets", "meta", "think_leak", "narration"):
+    for flag in ("bullets", "meta", "think_leak", "narration", "echo"):
         if s.get(flag):
             return flag
     if s.get("fabrication"):

@@ -116,7 +116,7 @@ def rescore(a):
 
 KEYS = ["n", "median_words", "median_limit_ratio", "over_limit_rows", "over_limit_rate", "median_fact_coverage_new",
         "median_fact_coverage_carry", "median_latest_state", "fabrication_rows", "bullet_rows", "meta_rows",
-        "think_leak_rows", "narration_rows", "empty_rows", "answered_in_thinking_rows", "finish_length_rows",
+        "think_leak_rows", "narration_rows", "echo_rows", "empty_rows", "answered_in_thinking_rows", "finish_length_rows",
         "failed_rows", "median_latency_s"]
 
 

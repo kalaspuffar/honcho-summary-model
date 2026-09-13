@@ -250,7 +250,7 @@ def complete(spec: ModelSpec, key: str, job: dict, effort=None, temperature=0.2)
         data = _post_json(ANTHROPIC_BASE + "/v1/messages", _anth_headers(key), body)
         if data.get("stop_reason") == "refusal":
             return {"text": "", "usage": data.get("usage"), "error": "refusal"}
-        return {"text": _anth_text(data), "usage": data.get("usage"), "error": ""}
+        return {"text": _anth_text(data), "usage": data.get("usage"), "error": "", "stop_reason": data.get("stop_reason")}
     body = {"model": spec.id, "max_tokens": job["max_tokens"], "temperature": temperature,
             "messages": [{"role": "system", "content": job["system"]},
                          {"role": "user", "content": job["user"]}]}
@@ -264,7 +264,7 @@ def complete(spec: ModelSpec, key: str, job: dict, effort=None, temperature=0.2)
     text = msg.get("content")
     if not isinstance(text, str):
         return {"text": "", "usage": data.get("usage"), "error": "null content"}
-    return {"text": text, "usage": data.get("usage"), "error": ""}
+    return {"text": text, "usage": data.get("usage"), "error": "", "stop_reason": (data.get("choices") or [{}])[0].get("finish_reason")}
 
 
 def _retryable(e):
@@ -369,7 +369,7 @@ def batch_results(batch_id: str) -> dict:
             if msg.get("stop_reason") == "refusal":
                 out[cid] = {"text": "", "usage": msg.get("usage"), "error": "refusal"}
             else:
-                out[cid] = {"text": _anth_text(msg), "usage": msg.get("usage"), "error": ""}
+                out[cid] = {"text": _anth_text(msg), "usage": msg.get("usage"), "error": "", "stop_reason": msg.get("stop_reason")}
         else:
             out[cid] = {"text": "", "usage": None,
                         "error": f"{res.get('type')}: {json.dumps(res.get('error', {}))[:300]}"}
