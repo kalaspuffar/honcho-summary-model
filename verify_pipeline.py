@@ -231,6 +231,9 @@ _over = {"id": "cX-s1", "summary": "word " * 900, "words": 900, "output_words": 
 _cj = gc.job_for(_ch, "short", 1, "prev text", "", _a, _over)
 ok("chosen: an over-budget draft is retried as a low-effort COMPRESS pass carrying the draft and checklist",
    "COMPRESS:" in _cj["system"] and _cj.get("effort") == "low" and "word word" in _cj["user"] and f"at most {int(gc.PROMPT_RATIO * _cj['_step']['output_words'])} words" in _cj["system"] and "- m3" in _cj["system"])
+ok("chosen: the last compress attempt may drop a tenth of the checklist, earlier ones may not",
+   "LAST PASS" in gc.job_for(_ch, "short", 1, "prev", "", _a, dict(_over, attempts=gc.MAX_ATTEMPTS - 1))["system"]
+   and "LAST PASS" not in gc.job_for(_ch, "short", 1, "prev", "", _a, dict(_over, attempts=1))["system"])
 ok("chosen: a truncated or missing row gets a fresh write", "effort" not in gc.job_for(_ch, "short", 1, "prev", "", _a, None)
    and "effort" not in gc.job_for(_ch, "short", 1, "prev", "", _a, dict(_over, stop_reason="max_tokens")))
 ok("chosen: teacher budget is its own, not Honcho's max_tokens", gc.TEACHER_MAX_TOKENS["short"] >= 4000 and gc.TEACHER_MAX_TOKENS["long"] >= 8000)

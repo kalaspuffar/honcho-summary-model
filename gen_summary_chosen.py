@@ -84,6 +84,15 @@ name, date, number, preference, question and decision — the checklist values v
 prose, the assistant's commentary and advice, repeated attributions, adjectives and restatements. Plain
 chronological paragraphs, no lists, no headings, no preamble, nothing but the rewritten summary.
 """
+# The physical limit (pilot, 2026-09-13): a dense 100-message chain at step 4 carries 43–59 ledger facts and
+# compresses to ~0.94 of the limit, never lower, while every value is kept. Honcho's prompt itself says
+# "drop lower-priority detail to stay within the limit", and the stage-4 filter accepts coverage >= 0.9,
+# so the LAST attempt may drop up to a tenth of the checklist — the least consequential values.
+COMPRESS_LAST_PASS = """
+LAST PASS: the budget could not be met while keeping every value. You may now DROP up to {n_drop} checklist
+values — choose the least consequential (the assistant's advice, minor quantities, incidental items),
+never a changed value, a name, a date or a decision. Everything else stays. The budget is binding.
+"""
 
 CHECKLIST = """
 CHECKLIST (for you only; never mention it): these values must be present in your summary if they are
@@ -123,10 +132,14 @@ def make_job(chain, kind, k, previous, variant, a):
             "max_tokens": TEACHER_MAX_TOKENS[kind], "_step": step}
 
 
-def make_compress_job(chain, kind, k, previous, variant, a, draft):
-    """Retry of an over-budget row: rewrite the teacher's own draft to the budget (cheap, converges)."""
+def make_compress_job(chain, kind, k, previous, variant, a, draft, last=False):
+    """Retry of an over-budget row: rewrite the teacher's own draft to the budget (cheap, converges).
+    last=True (the MAX_ATTEMPTS-th attempt) may drop up to a tenth of the checklist values."""
     step = sc.build_step(chain, kind, k, previous, a.max_tokens_short, a.max_tokens_long)
     system = COMPRESS_SYSTEM.format(budget=int(PROMPT_RATIO * step["output_words"]), limit=step["output_words"])
+    if last:
+        new, carry = ss.facts_due(sc.chain_view(chain, kind), k)
+        system += COMPRESS_LAST_PASS.format(n_drop=max(1, (len(new) + len(carry)) // 10))
     if not a.blind:
         system += checklist(chain, kind, k)
     return {"custom_id": sc.step_id(chain["id"], kind, k, variant), "system": system,
@@ -137,7 +150,7 @@ def make_compress_job(chain, kind, k, previous, variant, a, draft):
 def job_for(chain, kind, k, previous, variant, a, have):
     """Fresh write, or a compress pass when the previous attempt was a complete but over-budget draft."""
     if have is not None and be.failed(have) and over_budget(have) and have.get("stop_reason") not in ("max_tokens", "length"):
-        return make_compress_job(chain, kind, k, previous, variant, a, have["summary"])
+        return make_compress_job(chain, kind, k, previous, variant, a, have["summary"], last=have.get("attempts", 0) + 1 >= MAX_ATTEMPTS)
     return make_job(chain, kind, k, previous, variant, a)
 
 
