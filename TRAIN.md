@@ -82,3 +82,17 @@ Offline eval, 10 eval chains / 50 steps, honest chaining, Honcho max_tokens 1000
 Weak spots to feed the 150-chain run: carry falls with k (c00006-s4 0.77, c00017-s4 0.64, c00022-s2 0.59);
 multi-peer chains are the weakest (new 0.67–0.92, carry 0.59–0.83; only 4 multi-peer rows in training);
 `latest_state` 0.0/0.5 on two long summaries (c00022-l0, c00018-l0) — superseded values in the long slot.
+
+## Live check — 2026-09-13 (Honcho on node7, summary slot = `summary-smoke`, scratch workspace `summary-check`)
+
+`honcho_summary_harness.py` first contact with a real Honcho v3: workspace/peers/session creation, 20-message
+blocks, queued summariser, `GET .../summaries` all worked unchanged; every summary was stored (waits 10–85 s,
+long summary ready together with the third short one).
+
+| chain | short steps | limit ratio (median) | new / carry (median) | format flags | long |
+|---|---|---|---|---|---|
+| c00006 dense-facts, 100 msgs | 5 | 0.80, 0 over | 1.0 / 0.98 | none | 755 w, new 1.0 |
+| c00022 multi-peer, 60 msgs | 3 | 0.67, 0 over | 0.92 / 0.24 | none | 793 w, new 1.0 |
+
+c00022-s1 stored 368 words with **0 new facts** and carry 0.28 (offline: 0.73 / 0.61) — under inspection
+(results file on the Honcho host). Multi-peer remains the weak category, as in the offline eval.
