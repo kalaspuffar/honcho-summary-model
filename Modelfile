@@ -1,7 +1,10 @@
-# Honcho summary model. FROM points at the GGUF from `train_lora.py --stage export`.
-# No TEMPLATE line on purpose: Ollama uses its built-in qwen3.5 renderer; the model closes the
-# think block itself (served-prompt encoding in train_lora.encode_example). Temperature: summaries
-# are long narratives — test 0.1 vs 0.7 in Phase 0 (PLAN §4) before fixing this value.
-FROM runs/v1-gguf/unsloth.Q4_K_M.gguf
-PARAMETER temperature 0.3
+# Honcho summary model — as served for the 2026-09-13 smoke (`ollama create summary-smoke -f Modelfile`).
+# FROM points at the GGUF from `train_lora.py --stage export`. No TEMPLATE line on purpose: Ollama uses
+# its built-in qwen3.5 renderer; the model closes the think block itself (served-prompt encoding in
+# train_lora.encode_example). Temperature 0.1: Phase 0 showed 0.1 slightly better than 0.7 for the base,
+# the training targets are deterministic summaries, and the dialectic model serves at 0.1 too.
+# num_ctx: a long-summary prompt is ~6k tokens (60 messages + an ~800-word previous summary); 16384 is
+# ample and keeps the KV cache small — 65536 works but reserves VRAM for nothing.
+FROM runs/v1-gguf_gguf/merged.Q4_K_M.gguf
+PARAMETER temperature 0.1
 PARAMETER num_ctx 16384
