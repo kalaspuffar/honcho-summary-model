@@ -34,7 +34,7 @@ ECHO = re.compile(r"</?conversation>|</?previous_summary>|there is no previous s
 STOPWORDS = {"the", "a", "an", "of", "in", "on", "at", "to", "for", "and", "or", "with", "from", "by", "is",
              "are", "was", "were", "be", "been", "her", "his", "their", "its", "my", "our", "your", "she", "he",
              "they", "it", "that", "this", "as", "per", "not", "no", "up", "out", "if", "when", "than", "so"}
-TOKEN = re.compile(r"[^\W_]+(?:[.,:][0-9]+)*")
+TOKEN = re.compile(r"[^\W_]+(?:[.,:/][0-9]+)*")     # 1.052, 7:15, 14380, 1/15 stay one token
 WINDOW = 15          # facts: paraphrase tolerance
 WINDOW_STRICT = 6    # distractors: the anchors must sit together ("15 inches ... prints" is not "fifteen prints")
 NUMBER_WORDS = {w: str(i) for i, w in enumerate(["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",

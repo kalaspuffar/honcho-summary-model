@@ -214,6 +214,16 @@ inv = gc.invalidate_chain(dict(legacy))
 ok("chosen: legacy cut row fails, its dependants go stale, base-prev and complete rows survive",
    be.failed(inv["c1-s1"]) and "cut" in inv["c1-s1"]["__failed__"] and be.failed(inv["c1-s2"]) and "stale" in inv["c1-s2"]["__failed__"]
    and not be.failed(inv["c1-s2b"]) and not be.failed(inv["c1-s0"]) and not be.failed(inv["c2-s1"]))
+ob = {"c3-s0": {"id": "c3-s0", "summary": "Long enough. " * 100, "words": 200, "output_words": 200, "previous_from": None, "stop_reason": "end_turn"},
+      "c3-s1": {"id": "c3-s1", "summary": "Fine.", "words": 1, "output_words": 200, "previous_from": "chosen:c3-s0", "stop_reason": "end_turn"},
+      "c3-s2": {"id": "c3-s2", "summary": "Fine.", "words": 1, "output_words": 200, "previous_from": "chosen:c3-s1", "stop_reason": "end_turn", "attempts": 3,
+                "__failed__": "__FAILED__: over budget"}}
+inv2 = gc.invalidate_chain(dict(ob))
+ok("chosen: over-budget row fails and its dependant goes stale; attempts default to 1",
+   be.failed(inv2["c3-s0"]) and "over budget" in inv2["c3-s0"]["__failed__"] and be.failed(inv2["c3-s1"]) and inv2["c3-s1"]["attempts"] == 1)
+ok("chosen: a row at MAX_ATTEMPTS is given up, a first failure is not", gc.gave_up(inv2["c3-s2"]) and not gc.gave_up(inv2["c3-s0"]))
+ok("scorer: 1/15 is not the number 15", not ss.has_fact("whether 1/15 sec is too slow for her prints", "fifteen prints", strict=True)
+   and ss.has_fact("she chose 1/15 sec", "1/15 sec"))
 ok("chosen: teacher budget is its own, not Honcho's max_tokens", gc.TEACHER_MAX_TOKENS["short"] >= 4000 and gc.TEACHER_MAX_TOKENS["long"] >= 8000)
 ok("no real-deployment seeds: no name list in gen_sessions", not re.search(r"^NAMES\s*=", defs["gen_sessions.py"], re.M))
 

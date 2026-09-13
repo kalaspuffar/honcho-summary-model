@@ -26,9 +26,10 @@ Steps depend on the previous step, so:
   python3 gen_summary_chosen.py status
 
 Output rows: {id, chain, category, kind, k, variant, previous_from, previous_summary, output_words,
-max_tokens (Honcho's, for the record), stop_reason, summary, words, teacher, score}. Failed rows carry
-"__failed__" and are retried by a re-run; a row cut at the teacher's token budget is failed, and every
-later step built on it is marked stale and redone too (dependency order, wave by wave).
+max_tokens (Honcho's, for the record), stop_reason, summary, words, attempts, teacher, score}. Failed rows
+carry "__failed__" and are retried by a re-run; a row cut at the teacher's token budget or longer than
+TARGET_RATIO x the limit is a failed generation, every later step built on it is marked stale, and both
+are redone in dependency order (wave by wave) up to MAX_ATTEMPTS times.
 """
 import argparse
 import hashlib
@@ -42,7 +43,8 @@ import summary_scoring as ss
 
 KIND = "chosen"
 TARGET_RATIO = 0.9    # train under the limit: models overshoot (PLAN §2.2)
-PROMPT_RATIO = 0.85   # what the teacher is told to aim for (it counts words loosely; 21/155 smoke rows landed in 0.9–1.0)
+PROMPT_RATIO = 0.75   # the numeric budget the teacher is given; it overshoots an ask by 6–13 points (smoke: asked 85 %, wrote 91–105 %)
+MAX_ATTEMPTS = 3      # a step that is still over TARGET_RATIO after this many generations is given up (reported, not retried)
 # The teacher's own output budget. NOT Honcho's max_tokens: on Claude 5 the thinking tokens count against
 # max_tokens, and the 2026-09-13 smoke sent 1000 for short steps — 60 % of the k>=1 short summaries were cut
 # mid-sentence, always losing the newest chunk (chronological order puts it last). The word limit lives in
@@ -57,8 +59,11 @@ summariser would, and obey these hard rules on top of it:
    lists, no headings, no markdown, no labels like "Summary:".
 2. NOTHING BUT THE SUMMARY: no preamble, no meta-commentary, no closing remark, no mention of
    "the previous summary" or "the conversation above" as objects — just tell what happened.
-3. LENGTH: stay at or under {ratio} of the stated hard limit; if the conversation has little
-   content, be SHORT — never pad. Count words honestly.
+3. LENGTH: your budget for this answer is {budget} words — deliberately below the prompt's hard
+   limit of {limit}, because the model trained on your output overshoots. Every checklist value must
+   fit inside the budget: cut connective prose, the assistant's advice and commentary, repeated
+   attributions and adjectives first; cut a checklist value only when nothing else is left. If the
+   conversation has little content, stay far below the budget — never pad. Count your words.
 4. GROUNDED: every name, date, number, place and item comes from the previous summary or the new
    messages. Quote exact values (do not round, rename or paraphrase them). Invent nothing.
 5. MERGE: every fact in the previous summary survives unless the new messages explicitly change it;
@@ -89,9 +94,17 @@ def checklist(chain, kind, k):
                             distractors="; ".join(d["text"] for d in chain.get("distractors", [])) or "(none)")
 
 
+def over_budget(row) -> bool:
+    return bool(row.get("summary")) and bool(row.get("output_words")) and row.get("words", 0) > TARGET_RATIO * row["output_words"]
+
+
+def gave_up(row) -> bool:
+    return be.failed(row) and row.get("attempts", 0) >= MAX_ATTEMPTS
+
+
 def make_job(chain, kind, k, previous, variant, a):
     step = sc.build_step(chain, kind, k, previous, a.max_tokens_short, a.max_tokens_long)
-    system = SYSTEM.format(ratio=f"{int(PROMPT_RATIO * 100)}%")
+    system = SYSTEM.format(budget=int(PROMPT_RATIO * step["output_words"]), limit=step["output_words"])
     if not a.blind:
         system += checklist(chain, kind, k)
     return {"custom_id": sc.step_id(chain["id"], kind, k, variant), "system": system, "user": step["prompt"],
@@ -103,11 +116,11 @@ def _pick_base_prev(cid, kind, k, share):
     return h < int(share * 1000)
 
 
-def to_row(chain, kind, k, variant, previous_from, step, result, teacher):
+def to_row(chain, kind, k, variant, previous_from, step, result, teacher, attempts=1):
     row = {"id": sc.step_id(chain["id"], kind, k, variant), "chain": chain["id"], "category": chain.get("category"),
            "kind": kind, "k": k, "variant": "base_prev" if variant else "clean", "previous_from": previous_from,
            "previous_summary": step["previous_summary"], "output_words": step["output_words"],
-           "max_tokens": step["max_tokens"], "teacher": teacher}
+           "max_tokens": step["max_tokens"], "teacher": teacher, "attempts": attempts}
     text = (result.get("text") or "").strip()
     row["stop_reason"] = result.get("stop_reason")
     if result.get("error") or not text:
@@ -118,6 +131,9 @@ def to_row(chain, kind, k, variant, previous_from, step, result, teacher):
         row.update(summary=text, words=ss.words(text), __failed__=f"__FAILED__: truncated at max_tokens ({ss.words(text)} words)")
         return row
     row.update(summary=text, words=ss.words(text), score=sc.score_step(chain, kind, k, text, step["output_words"]))
+    if over_budget(row):
+        # a length rule broken at generation time is a failed generation: retried (with dependants) up to MAX_ATTEMPTS
+        row["__failed__"] = f"__FAILED__: over budget ({row['words']} words > {TARGET_RATIO} x {row['output_words']})"
     return row
 
 
@@ -156,7 +172,11 @@ def previous_for(chain, kind, k, variant, chosen, rejected):
 
 def report(rows, path):
     good = [r for r in rows if not be.failed(r)]
-    print(f"wrote {path}: {len(rows)} rows, {len(good)} good, {len(rows) - len(good)} failed")
+    print(f"wrote {path}: {len(rows)} rows, {len(good)} good, {len(rows) - len(good)} failed "
+          f"({sum(1 for r in rows if over_budget(r) and be.failed(r))} over budget, {sum(1 for r in rows if gave_up(r))} given up)")
+    if good:
+        ratios = sorted(r["words"] / r["output_words"] for r in good)
+        print(f"  good rows limit_ratio median {ratios[len(ratios)//2]:.2f} max {ratios[-1]:.2f} (budget asked {PROMPT_RATIO}, accepted <= {TARGET_RATIO})")
     for kind in sc.KINDS:
         rs = [r for r in good if r["kind"] == kind]
         if rs:
@@ -177,8 +197,11 @@ def invalidate_chain(chosen):
     Rows written before stop_reason was recorded (the 2026-09-13 smoke) are failed when they end
     mid-sentence — the signature of the max_tokens cut."""
     for r in chosen.values():
+        r.setdefault("attempts", 1)
         if "stop_reason" not in r and not be.failed(r) and r.get("summary") and not CUT_END.search(r["summary"]):
             r["__failed__"] = f"__FAILED__: legacy row cut mid-sentence ({r.get('words')} words)"
+        elif not be.failed(r) and over_budget(r):
+            r["__failed__"] = f"__FAILED__: over budget ({r['words']} words > {TARGET_RATIO} x {r['output_words']})"
     changed = True
     while changed:
         changed = False
@@ -263,6 +286,8 @@ def cmd_run(a):
             if have is not None and not be.failed(have):
                 local[sid] = have
                 continue
+            if have is not None and gave_up(have):
+                continue                                    # MAX_ATTEMPTS reached: reported, not retried
             prev, pfrom = previous_for(c, kind, k, variant, {**chosen, **local}, rejected)
             if prev is None or stop.is_set():
                 continue                                    # previous step failed / cap: retried next run
@@ -272,7 +297,7 @@ def cmd_run(a):
                 spent[0] += be.usage_usd(spec, r.get("usage") or {})
                 if a.max_usd is not None and spent[0] > a.max_usd:
                     stop.set()
-            row = to_row(c, kind, k, variant, pfrom, job["_step"], r, a.model)
+            row = to_row(c, kind, k, variant, pfrom, job["_step"], r, a.model, attempts=(have or {}).get("attempts", 0) + 1)
             local[sid] = row
             rows.append(row)
         return rows
@@ -303,7 +328,7 @@ def _wave(a, chains, rejected, chosen):
         for kind, k, variant in wanted_steps(c, rejected, a.base_prev_share):
             sid = sc.step_id(c["id"], kind, k, variant)
             have = chosen.get(sid)
-            if have is not None and not be.failed(have):
+            if have is not None and (not be.failed(have) or gave_up(have)):
                 continue
             prev, pfrom = previous_for(c, kind, k, variant, chosen, rejected)
             if prev is None:
@@ -311,21 +336,32 @@ def _wave(a, chains, rejected, chosen):
             j = make_job(c, kind, k, prev, variant, a)
             jobs.append({k_: v for k_, v in j.items() if k_ != "_step"})
             metas.append({"id": sid, "chain": c["id"], "kind": kind, "k": k, "variant": variant, "previous_from": pfrom,
+                          "attempts": (have or {}).get("attempts", 0) + 1,
                           "previous_summary": j["_step"]["previous_summary"], "output_words": j["_step"]["output_words"],
                           "max_tokens": j["_step"]["max_tokens"]})
     return jobs, metas
 
 
 def _remaining(chains, rejected, chosen, share):
-    return sum(1 for c in chains for kd, k, v in wanted_steps(c, rejected, share)
-               if sc.step_id(c["id"], kd, k, v) not in chosen or be.failed(chosen[sc.step_id(c["id"], kd, k, v)]))
+    """(steps still to do, steps given up after MAX_ATTEMPTS)."""
+    todo = gu = 0
+    for c in chains:
+        for kd, k, v in wanted_steps(c, rejected, share):
+            have = chosen.get(sc.step_id(c["id"], kd, k, v))
+            if have is not None and gave_up(have):
+                gu += 1
+            elif have is None or be.failed(have):
+                todo += 1
+    return todo, gu
 
 
 def cmd_submit(a):
     spec = be.resolve_model(a.model)
     chains, rejected, out, chosen = _setup(a)
     jobs, metas = _wave(a, chains, rejected, chosen)
-    left = _remaining(chains, rejected, chosen, a.base_prev_share)
+    left, gu = _remaining(chains, rejected, chosen, a.base_prev_share)
+    if gu:
+        print(f"{gu} steps given up after {MAX_ATTEMPTS} over-budget attempts (their later steps are not generated)")
     if not jobs:
         print(f"nothing submittable: {left} steps remain" + (" (their previous steps failed — fix/retry those)" if left else " — all done"))
         return 0
@@ -373,7 +409,8 @@ def _fetch_one(path, poll, no_wait):
         c = chains[meta["chain"]]
         step = {"previous_summary": meta["previous_summary"], "output_words": meta["output_words"], "max_tokens": meta["max_tokens"]}
         rows.append(to_row(c, meta["kind"], meta["k"], meta["variant"], meta["previous_from"], step,
-                           results.get(meta["id"], {"error": "no result for this id"}), m.get("model_alias", m["model"])))
+                           results.get(meta["id"], {"error": "no result for this id"}), m.get("model_alias", m["model"]),
+                           attempts=meta.get("attempts", 1)))
     spent = sum(be.usage_usd(spec, r.get("usage") or {}, batch=True) for r in results.values())
     merged = write_out(m["out"], rows, invalidate_chain({r["id"]: r for r in be.read_jsonl(m["out"])}))
     report(merged, m["out"])
