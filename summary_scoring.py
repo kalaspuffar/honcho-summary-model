@@ -64,8 +64,11 @@ def score_summary(chain: dict, k: int, summary: str, output_words: int) -> dict:
            "bullets": bool(BULLET.search(s)), "meta": bool(META.search(s)),
            "think_leak": bool(THINK_LEAK.search(s)), "narration": bool(NARRATION.search(s))}
     if w == 0 or row["narration"]:
-        row.update(fact_coverage_new=0.0, fact_coverage_carry=0.0, latest_state=None, fabrication=False,
-                   n_new=len(new), n_carry=len(carry))
+        # nothing usable was produced: every fact that was due is missed; a coverage with nothing due stays None
+        # (an empty chunk-0 summary must not count as a dropped-carry row)
+        states = [c for c in chain.get("changes", []) if c["seq"] <= hi]
+        row.update(fact_coverage_new=0.0 if new else None, fact_coverage_carry=0.0 if carry else None,
+                   latest_state=0.0 if states else None, fabrication=False, n_new=len(new), n_carry=len(carry))
         return row
     row["n_new"], row["n_carry"] = len(new), len(carry)
     row["fact_coverage_new"] = round(sum(has_fact(s, f) for f in new) / len(new), 3) if new else None

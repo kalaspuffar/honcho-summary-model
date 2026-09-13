@@ -19,6 +19,9 @@ unchanged — read them before the first run:
 ## Failure log
 | Date | Stage | What failed | Fix / workaround |
 |---|---|---|---|
+| 2026-09-13 | Phase 0 (`gen_summary_rejected.py`, base `qwen3.5:9b`, node7) | Short slot 104/104 empty: `finish_reason=length`, all 1000 tokens in `<think>`, at 0.1 and at 0.7. Long slot: 14/29 truncated, 4 empty. Honcho would store nothing for shorts. | Not fixable by settings (no thinking-off switch on Ollama for Qwen3.5; 4000 tokens still truncate half the long ones). This is the failure the served-prompt SFT removes (`encode_example`, `--stage check` must show `\n</think>\n\n` first). Proceed to the smoke. |
+| 2026-09-13 | Phase 0 (`dialectic_s50` in the summary slot) | Answers, but terse (161 w median of ~450) and carries only ~1/3 of earlier facts; 8 % think leaks, 5 % fabrication. | Not a candidate for the slot; its outputs feed the stage 3 base-previous variant instead (PLAN §10). |
+| 2026-09-13 | scorer | Empty rows scored carry 0.0 with nothing due → base carry medians read 0. | `summary_scoring.score_summary` fixed; rescore with `eval_summary.py rescore`. |
 
 ## Runbook — data side (2026-09-12, pipeline implemented, nothing run)
 
