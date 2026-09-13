@@ -94,5 +94,11 @@ long summary ready together with the third short one).
 | c00006 dense-facts, 100 msgs | 5 | 0.80, 0 over | 1.0 / 0.98 | none | 755 w, new 1.0 |
 | c00022 multi-peer, 60 msgs | 3 | 0.67, 0 over | 0.92 / 0.24 | none | 793 w, new 1.0 |
 
-c00022-s1 stored 368 words with **0 new facts** and carry 0.28 (offline: 0.73 / 0.61) — under inspection
-(results file on the Honcho host). Multi-peer remains the weak category, as in the offline eval.
+c00022-s1 stored 368 words with **0 new facts** and carry 0.28 (offline: 0.73 / 0.61). The stored text is a
+confabulation ("second segment of his conversation", invented numbers) that never mentions block 1's content.
+`harness replay` of the same step against Ollama with the stored s0 as previous: new 0.82 / 0.91 / 0.82,
+carry 0.83 / 0.72 / 0.89 (3 samples) → **the model is fine; Honcho sent that step a different prompt.**
+Honcho's `create_messages` assigns `seq_in_session` per message and `get_messages_by_seq_range` filters by it,
+so the range logic reads correctly; what went over the wire is unknown → `log_proxy.py` between Honcho and
+Ollama, re-run the chain in batch mode and `--one-by-one`, `log_proxy.py diff` the s1 request. The harness now
+records which message each stored summary is anchored to (`anchor_ok`).

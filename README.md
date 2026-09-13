@@ -28,7 +28,8 @@ servers at $0 and must print GO.
 | `gen_summary_chosen.py` | stage 3: teacher summaries, clean chain + base-previous variant; sync or wave-wise batches | done |
 | `build_summary_dataset.py` | stage 4: scorer filters + human-persona split → SFT rows (+ same-prompt DPO pairs) | done |
 | `eval_summary.py` | offline eval `run / compare / rescore` | done |
-| `honcho_summary_harness.py` | live check through Honcho's v3 API, results only under `results/` | done, untested against a live Honcho |
+| `honcho_summary_harness.py` | live check through Honcho's v3 API (`run`, `compare`, `replay` a stored step against Ollama); records which message each stored summary is anchored to; `--one-by-one` mimics real traffic | done, verified against Honcho on 2026-09-13 |
+| `log_proxy.py` | transparent logging proxy in front of Ollama: records every request Honcho sends the summary model; `diff` compares a logged prompt with what `summary_chain.build_step` would send | done |
 | `Modelfile`, `keys.env.example` | serving + secrets template | written |
 
 ## Commands

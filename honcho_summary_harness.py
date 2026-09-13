@@ -15,6 +15,9 @@ Flow (Honcho v3 API, commit in summary_prompt.py):
   GET  /v3/workspaces/{ws}/sessions/{s}/summaries -> {short_summary, long_summary} each {content, message_id, token_count, ...}
 After every block the harness polls the summaries endpoint until the short summary's message_id moves
 (or --wait seconds pass), so each stored short summary is captured before the next block overwrites it.
+Each row records the message the stored summary is anchored to (`anchor_seq`, from the ids Honcho returned
+for the posted messages) and `anchor_ok` = anchored at the block's last message. `--one-by-one` posts one
+message per request like real traffic (2026-09-13: a batch of 20 gave one step a wrong prompt; see TRAIN.md).
 The stored summary for block k is scored as step (short, k); the long summary at message 60j as (long, j-1).
 Point Honcho at the model under test with SUMMARY_MODEL_CONFIG__* before running (PLAN §0.1).
 """
@@ -82,25 +85,38 @@ def run(a):
     rows, last_ids = [], {"short": None, "long": None}
     mts, mtl = a.max_tokens_short, a.max_tokens_long
     prev_stored = {"short": "", "long": ""}
+    posted = {}                                   # seq -> Honcho message id (to check which message anchors a summary)
     for k, ch in enumerate(chain["chunks"]):
         lo, hi = ch["seqs"]
         block = [{"peer_id": m["peer"], "content": m["text"]} for m in chain["messages"] if lo <= m["seq"] <= hi]
-        api(a.base, "POST", f"/workspaces/{a.workspace}/sessions/{session}/messages", {"messages": block}, key)
+        if a.one_by_one:                          # real traffic: one message per request
+            for seq, msg in zip(range(lo, hi + 1), block):
+                created = api(a.base, "POST", f"/workspaces/{a.workspace}/sessions/{session}/messages", {"messages": [msg]}, key)
+                posted[seq] = (created[0] if isinstance(created, list) and created else {}).get("id")
+                time.sleep(a.delay)
+        else:
+            created = api(a.base, "POST", f"/workspaces/{a.workspace}/sessions/{session}/messages", {"messages": block}, key)
+            for seq, m in zip(range(lo, hi + 1), created if isinstance(created, list) else []):
+                posted[seq] = m.get("id")
         due = [("short", k)] + ([("long", hi // sc.LONG_EVERY - 1)] if hi % sc.LONG_EVERY == 0 else [])
         for kind, j in due:
             s, waited = wait_for(a.base, a.workspace, session, key, kind, last_ids[kind], a.wait, a.poll)
             content = (s or {}).get("content", "") or ""
             # score exactly as Honcho computed the limit: previous = the previously stored summary of this kind
             step = sc.build_step(chain, kind, j, prev_stored[kind], mts, mtl)
+            anchor = (s or {}).get("message_id")
+            anchor_seq = next((q for q, mid in posted.items() if mid and mid == anchor), None)
             row = {"id": sc.step_id(chain["id"], kind, j), "chain": chain["id"], "kind": kind, "k": j, "messages_through": hi,
                    "stored": s is not None, "waited_s": waited, "words": len(content.split()), "output_words": step["output_words"],
-                   "token_count": (s or {}).get("token_count"), "summary": content,
+                   "token_count": (s or {}).get("token_count"), "summary_message_id": anchor, "anchor_seq": anchor_seq,
+                   "anchor_ok": anchor_seq == hi if anchor_seq is not None else None, "summary": content,
                    "score": sc.score_step(chain, kind, j, content, step["output_words"])}
             rows.append(row)
             if s is not None:
                 last_ids[kind] = s.get("message_id"); prev_stored[kind] = content
             sc_ = row["score"]
-            print(f"  block {k} ({kind} {j}) {'stored' if s else 'NOT STORED'} after {waited}s: {row['words']}w/{row['output_words']} "
+            anchor_txt = "" if anchor_seq is None else (f" anchored at msg {anchor_seq}" + ("" if anchor_seq == hi else f" (EXPECTED {hi})"))
+            print(f"  block {k} ({kind} {j}) {'stored' if s else 'NOT STORED'} after {waited}s{anchor_txt}: {row['words']}w/{row['output_words']} "
                   f"new={sc_.get('fact_coverage_new')} carry={sc_.get('fact_coverage_carry')} fab={sc_['fabrication']}"
                   f"{' bullets' if sc_['bullets'] else ''}{' meta' if sc_['meta'] else ''}{' EMPTY' if sc_['empty'] else ''}", file=sys.stderr)
 
@@ -111,9 +127,10 @@ def run(a):
         import summary_scoring as ss
         x = ss.aggregate([r["score"] for r in rs])
         x["not_stored_rows"] = sum(1 for r in rs if not r["stored"])
+        x["misanchored_rows"] = sum(1 for r in rs if r.get("anchor_ok") is False)
         x["median_wait_s"] = round(statistics.median(r["waited_s"] for r in rs), 1)
         return x
-    summary = {"label": a.label, "base": a.base, "workspace": a.workspace, "session": session, "chain": chain["id"],
+    summary = {"label": a.label, "base": a.base, "workspace": a.workspace, "session": session, "chain": chain["id"], "one_by_one": a.one_by_one,
                "category": chain.get("category"), "n_messages": len(chain["messages"]), "short": agg("short"), "long": agg("long"),
                "ts": time.strftime("%Y%m%d-%H%M%S")}
     out = a.out or f"results/harness-{a.label}-{summary['ts']}.json"
@@ -176,6 +193,8 @@ def main():
     p.add_argument("--label", required=True, help="model/config name for the record, e.g. base_t01")
     p.add_argument("--key", default=None, help="JWT if Honcho runs with AUTH_USE_AUTH (or env HONCHO_API_KEY)")
     p.add_argument("--wait", type=int, default=600, help="seconds to wait for each summary")
+    p.add_argument("--one-by-one", action="store_true", help="post one message per request (real traffic) instead of blocks of 20")
+    p.add_argument("--delay", type=float, default=0.5, help="seconds between messages with --one-by-one")
     p.add_argument("--poll", type=int, default=5)
     p.add_argument("--max-tokens-short", type=int, default=sp.MAX_TOKENS_SHORT_DEFAULT, help="Honcho's SUMMARY_MAX_TOKENS_SHORT (for the limit)")
     p.add_argument("--max-tokens-long", type=int, default=sp.MAX_TOKENS_LONG_DEFAULT)
