@@ -226,6 +226,7 @@ def _anth_headers(key):
 
 
 def _anth_params(spec, job, effort):
+    effort = job.get("effort", effort)          # a job may override the run's thinking effort (cheap rewrite passes)
     p = {"model": spec.id, "max_tokens": job["max_tokens"],
          # Shared system text first -> prompt-cache hit across rows (stacks with batch 50%).
          "system": [{"type": "text", "text": job["system"], "cache_control": {"type": "ephemeral"}}],

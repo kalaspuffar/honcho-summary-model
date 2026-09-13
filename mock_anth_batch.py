@@ -40,6 +40,9 @@ def _content_for(params):
             k = mo.COUNTER[0]
         mn = re.search(r"exactly (\d+) messages", user_all)
         return json.dumps(mo.mock_chain(int(mn.group(1)) if mn else 60, k, three="three-people" in user_all))
+    if "COMPRESS:" in system:
+        mb = re.search(r"at most (\d+) words", system)
+        return " ".join(user_all.split("\n\n", 1)[-1].split()[:int(mb.group(1)) if mb else 100])
     if "<previous_summary>" in user_all:
         return mo.mock_summary(user_all, bullets="bullety" in str(params.get("model", "")), verb="mentioned" if "reference summariser" in system else "said")
     if "synthetic training data" in system:

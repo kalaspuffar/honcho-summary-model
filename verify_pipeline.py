@@ -225,6 +225,14 @@ ok("chosen: a row at MAX_ATTEMPTS is given up, a first failure is not", gc.gave_
 ok("chosen: --only restricts the chains", [c["id"] for c in sc.load_chains(chains if False else "data/chains.jsonl", {"c00000"})] == ["c00000"] if os.path.exists("data/chains.jsonl") else True)
 ok("scorer: 1/15 is not the number 15", not ss.has_fact("whether 1/15 sec is too slow for her prints", "fifteen prints", strict=True)
    and ss.has_fact("she chose 1/15 sec", "1/15 sec"))
+_a = argparse.Namespace(max_tokens_short=1000, max_tokens_long=4000, blind=False) if (argparse := __import__("argparse")) else None
+_ch = _chain(60); _ch["facts"] = [{"id": "f1", "text": "m3", "first_seq": 3, "kind": "x"}]
+_over = {"id": "cX-s1", "summary": "word " * 900, "words": 900, "output_words": 750, "stop_reason": "end_turn", "__failed__": "__FAILED__: over budget"}
+_cj = gc.job_for(_ch, "short", 1, "prev text", "", _a, _over)
+ok("chosen: an over-budget draft is retried as a low-effort COMPRESS pass carrying the draft and checklist",
+   "COMPRESS:" in _cj["system"] and _cj.get("effort") == "low" and "word word" in _cj["user"] and f"at most {int(gc.PROMPT_RATIO * _cj['_step']['output_words'])} words" in _cj["system"] and "- m3" in _cj["system"])
+ok("chosen: a truncated or missing row gets a fresh write", "effort" not in gc.job_for(_ch, "short", 1, "prev", "", _a, None)
+   and "effort" not in gc.job_for(_ch, "short", 1, "prev", "", _a, dict(_over, stop_reason="max_tokens")))
 ok("chosen: teacher budget is its own, not Honcho's max_tokens", gc.TEACHER_MAX_TOKENS["short"] >= 4000 and gc.TEACHER_MAX_TOKENS["long"] >= 8000)
 ok("no real-deployment seeds: no name list in gen_sessions", not re.search(r"^NAMES\s*=", defs["gen_sessions.py"], re.M))
 

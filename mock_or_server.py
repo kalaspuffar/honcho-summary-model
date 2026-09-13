@@ -141,6 +141,9 @@ class H(BaseHTTPRequestHandler):
                 k = COUNTER[0]
             mn = re.search(r"exactly (\d+) messages", user_all)
             content = json.dumps(mock_chain(int(mn.group(1)) if mn else 60, k, three="three-people" in user_all))
+        elif "COMPRESS:" in system:
+            mb = re.search(r"at most (\d+) words", system)
+            content = " ".join(user_all.split("\n\n", 1)[-1].split()[:int(mb.group(1)) if mb else 100])
         elif "<previous_summary>" in user_all:
             content = mock_summary(user_all, bullets="bullety" in model, verb="mentioned" if "reference summariser" in system else "said")
         elif "synthetic training data" in system:

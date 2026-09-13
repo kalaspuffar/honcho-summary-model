@@ -29,8 +29,10 @@ Steps depend on the previous step, so:
 Output rows: {id, chain, category, kind, k, variant, previous_from, previous_summary, output_words,
 max_tokens (Honcho's, for the record), stop_reason, summary, words, attempts, teacher, score}. Failed rows
 carry "__failed__" and are retried by a re-run; a row cut at the teacher's token budget or longer than
-TARGET_RATIO x the limit is a failed generation, every later step built on it is marked stale, and both
-are redone in dependency order (wave by wave) up to MAX_ATTEMPTS times.
+TARGET_RATIO x the limit is a failed generation and every later step built on it is marked stale. An
+over-budget draft is retried as a cheap COMPRESS pass (rewrite the draft to the budget, low effort) rather
+than a fresh write; MAX_ATTEMPTS in total, then the step is given up. `run` loops passes until nothing
+changes, so one invocation completes the chains it can.
 """
 import argparse
 import hashlib
@@ -45,7 +47,8 @@ import summary_scoring as ss
 KIND = "chosen"
 TARGET_RATIO = 0.9    # train under the limit: models overshoot (PLAN §2.2)
 PROMPT_RATIO = 0.75   # the numeric budget the teacher is given; it overshoots an ask by 6–13 points (smoke: asked 85 %, wrote 91–105 %)
-MAX_ATTEMPTS = 2      # a step that is still over TARGET_RATIO after this many generations is given up (reported, not retried)
+MAX_ATTEMPTS = 3      # fresh write, then up to two COMPRESS passes of the over-budget draft; then given up (reported, not retried)
+COMPRESS_EFFORT = "low"   # a rewrite-to-length needs no deep thinking; the pilot's failures were 0.91–0.95 of the limit
 # The teacher's own output budget. NOT Honcho's max_tokens: on Claude 5 the thinking tokens count against
 # max_tokens, and the 2026-09-13 smoke sent 1000 for short steps — 60 % of the k>=1 short summaries were cut
 # mid-sentence, always losing the newest chunk (chronological order puts it last). The word limit lives in
@@ -72,6 +75,14 @@ summariser would, and obey these hard rules on top of it:
    right speaker when speakers differ.
 6. Prefer explicit facts, preferences, questions and decisions over mood and generalities. The long
    variant may additionally describe emotional state and recurring themes, briefly, after the facts.
+"""
+
+COMPRESS_SYSTEM = """You are the reference summariser for a fine-tuning dataset. COMPRESS: the draft below is a
+correct summary that is too long. Rewrite it to at most {budget} words (the production hard limit is
+{limit}; the trained model overshoots, so the budget is deliberately lower). Keep every fact, value,
+name, date, number, preference, question and decision — the checklist values verbatim. Remove connective
+prose, the assistant's commentary and advice, repeated attributions, adjectives and restatements. Plain
+chronological paragraphs, no lists, no headings, no preamble, nothing but the rewritten summary.
 """
 
 CHECKLIST = """
@@ -110,6 +121,24 @@ def make_job(chain, kind, k, previous, variant, a):
         system += checklist(chain, kind, k)
     return {"custom_id": sc.step_id(chain["id"], kind, k, variant), "system": system, "user": step["prompt"],
             "max_tokens": TEACHER_MAX_TOKENS[kind], "_step": step}
+
+
+def make_compress_job(chain, kind, k, previous, variant, a, draft):
+    """Retry of an over-budget row: rewrite the teacher's own draft to the budget (cheap, converges)."""
+    step = sc.build_step(chain, kind, k, previous, a.max_tokens_short, a.max_tokens_long)
+    system = COMPRESS_SYSTEM.format(budget=int(PROMPT_RATIO * step["output_words"]), limit=step["output_words"])
+    if not a.blind:
+        system += checklist(chain, kind, k)
+    return {"custom_id": sc.step_id(chain["id"], kind, k, variant), "system": system,
+            "user": f"Draft ({ss.words(draft)} words; rewrite to at most {int(PROMPT_RATIO * step['output_words'])} words):\n\n{draft}",
+            "max_tokens": TEACHER_MAX_TOKENS[kind], "effort": COMPRESS_EFFORT, "_step": step}
+
+
+def job_for(chain, kind, k, previous, variant, a, have):
+    """Fresh write, or a compress pass when the previous attempt was a complete but over-budget draft."""
+    if have is not None and be.failed(have) and over_budget(have) and have.get("stop_reason") not in ("max_tokens", "length"):
+        return make_compress_job(chain, kind, k, previous, variant, a, have["summary"])
+    return make_job(chain, kind, k, previous, variant, a)
 
 
 def _pick_base_prev(cid, kind, k, share):
@@ -177,7 +206,8 @@ def report(rows, path):
           f"({sum(1 for r in rows if over_budget(r) and be.failed(r))} over budget, {sum(1 for r in rows if gave_up(r))} given up)")
     if good:
         ratios = sorted(r["words"] / r["output_words"] for r in good)
-        print(f"  good rows limit_ratio median {ratios[len(ratios)//2]:.2f} max {ratios[-1]:.2f} (budget asked {PROMPT_RATIO}, accepted <= {TARGET_RATIO})")
+        print(f"  good rows limit_ratio median {ratios[len(ratios)//2]:.2f} max {ratios[-1]:.2f} (budget asked {PROMPT_RATIO}, accepted <= {TARGET_RATIO}); "
+              f"{sum(1 for r in good if r.get('compressed_from_words'))} reached it through a compress pass")
     for kind in sc.KINDS:
         rs = [r for r in good if r["kind"] == kind]
         if rs:
@@ -292,30 +322,39 @@ def cmd_run(a):
             prev, pfrom = previous_for(c, kind, k, variant, {**chosen, **local}, rejected)
             if prev is None or stop.is_set():
                 continue                                    # previous step failed / cap: retried next run
-            job = make_job(c, kind, k, prev, variant, a)
-            r = be.complete_with_retry(spec, key, job, a.effort)
+            job = job_for(c, kind, k, prev, variant, a, have)
+            r = be.complete_with_retry(spec, key, job, job.get("effort", a.effort))
             with lock:
                 spent[0] += be.usage_usd(spec, r.get("usage") or {})
                 if a.max_usd is not None and spent[0] > a.max_usd:
                     stop.set()
             row = to_row(c, kind, k, variant, pfrom, job["_step"], r, a.model, attempts=(have or {}).get("attempts", 0) + 1)
+            if "effort" in job:
+                row["compressed_from_words"] = ss.words(have["summary"])
             local[sid] = row
             rows.append(row)
         return rows
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, a.concurrency)) as ex:
-        for i, rows in enumerate(ex.map(work, todo), 1):
-            new_rows.extend(rows)
-            for r in rows:
-                if be.failed(r):
-                    print(f"  [{i}/{len(todo)}] {r['id']} FAIL {r['__failed__'][:70]}", flush=True)
-                else:
-                    s = r["score"]
-                    print(f"  [{i}/{len(todo)}] {r['id']:14} {r['words']:4}w/{r['output_words']} new={s.get('fact_coverage_new')} "
-                          f"carry={s.get('fact_coverage_carry')} fab={s['fabrication']}"
-                          f"{' bullets' if s['bullets'] else ''}{' meta' if s['meta'] else ''}", flush=True)
-            if i % 5 == 0:
-                be.write_jsonl(out, sorted(be.merge_rows(out, new_rows), key=lambda r: r["id"]))
+    # passes: a failed (over-budget) step blocks its chain within a pass; the next pass compresses it and
+    # continues the chain, until a pass produces nothing new (all done or given up) or MAX_ATTEMPTS+1 passes
+    for pass_no in range(1, MAX_ATTEMPTS + 2):
+        pass_rows = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, a.concurrency)) as ex:
+            for i, rows in enumerate(ex.map(work, todo), 1):
+                pass_rows.extend(rows)
+                for r in rows:
+                    tag = " (compressed)" if r.get("compressed_from_words") else ""
+                    if be.failed(r):
+                        print(f"  [pass {pass_no} {i}/{len(todo)}] {r['id']} FAIL {r['__failed__'][:70]}{tag}", flush=True)
+                    else:
+                        s = r["score"]
+                        print(f"  [pass {pass_no} {i}/{len(todo)}] {r['id']:14} {r['words']:4}w/{r['output_words']} new={s.get('fact_coverage_new')} "
+                              f"carry={s.get('fact_coverage_carry')} fab={s['fabrication']}"
+                              f"{' bullets' if s['bullets'] else ''}{' meta' if s['meta'] else ''}{tag}", flush=True)
+        new_rows.extend(pass_rows)
+        chosen = invalidate_chain({r["id"]: r for r in write_out(out, new_rows, chosen)})
+        if not pass_rows or stop.is_set():
+            break
     merged = write_out(out, new_rows, chosen)
     report(merged, out)
     print(f"usage-based spend ≈ ${spent[0]:.3f}" + (" (cost cap reached; rerun to resume)" if stop.is_set() else ""))
@@ -334,10 +373,10 @@ def _wave(a, chains, rejected, chosen):
             prev, pfrom = previous_for(c, kind, k, variant, chosen, rejected)
             if prev is None:
                 continue
-            j = make_job(c, kind, k, prev, variant, a)
+            j = job_for(c, kind, k, prev, variant, a, have)
             jobs.append({k_: v for k_, v in j.items() if k_ != "_step"})
             metas.append({"id": sid, "chain": c["id"], "kind": kind, "k": k, "variant": variant, "previous_from": pfrom,
-                          "attempts": (have or {}).get("attempts", 0) + 1,
+                          "attempts": (have or {}).get("attempts", 0) + 1, "compressed_from_words": ss.words(have["summary"]) if "effort" in j else None,
                           "previous_summary": j["_step"]["previous_summary"], "output_words": j["_step"]["output_words"],
                           "max_tokens": j["_step"]["max_tokens"]})
     return jobs, metas
@@ -367,7 +406,8 @@ def cmd_submit(a):
         print(f"nothing submittable: {left} steps remain" + (" (their previous steps failed — fix/retry those)" if left else " — all done"))
         return 0
     usd, _, _ = be.estimate_usd(spec, jobs, int(sum(m["output_words"] for m in metas) / len(metas) * TARGET_RATIO * 1.4), batch=True)
-    print(f"{spec} batch wave: {len(jobs)} steps now, {left - len(jobs)} wait for a later wave; estimate ≈ ${usd:.2f} (reference only)")
+    print(f"{spec} batch wave: {len(jobs)} steps now ({sum(1 for j in jobs if 'effort' in j)} compress passes), "
+          f"{left - len(jobs)} wait for a later wave; estimate ≈ ${usd:.2f} (reference only)")
     b = be.batch_submit(spec, jobs, effort=a.effort)
     path = be.write_manifest(KIND, {"batch_id": b["id"], "model": str(spec), "model_alias": a.model, "n": len(jobs), "out": out,
                                     "chains": os.path.abspath(a.chains), "rejected": os.path.abspath(a.rejected) if a.rejected else None,
@@ -409,9 +449,12 @@ def _fetch_one(path, poll, no_wait):
     for meta in m["metas"]:
         c = chains[meta["chain"]]
         step = {"previous_summary": meta["previous_summary"], "output_words": meta["output_words"], "max_tokens": meta["max_tokens"]}
-        rows.append(to_row(c, meta["kind"], meta["k"], meta["variant"], meta["previous_from"], step,
-                           results.get(meta["id"], {"error": "no result for this id"}), m.get("model_alias", m["model"]),
-                           attempts=meta.get("attempts", 1)))
+        row = to_row(c, meta["kind"], meta["k"], meta["variant"], meta["previous_from"], step,
+                     results.get(meta["id"], {"error": "no result for this id"}), m.get("model_alias", m["model"]),
+                     attempts=meta.get("attempts", 1))
+        if meta.get("compressed_from_words"):
+            row["compressed_from_words"] = meta["compressed_from_words"]
+        rows.append(row)
     spent = sum(be.usage_usd(spec, r.get("usage") or {}, batch=True) for r in results.values())
     merged = write_out(m["out"], rows, invalidate_chain({r["id"]: r for r in be.read_jsonl(m["out"])}))
     report(merged, m["out"])
