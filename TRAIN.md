@@ -39,9 +39,10 @@ Order (PLAN §9), every step resume-safe and preceded by its estimate:
    `fabrication_rows`, `answered_in_thinking_rows`, `finish_length_rows`, `empty_rows`. PLAN §0.4 gate decides.
 3. `gen_summary_chosen.py submit … --rejected data/rejected.jsonl` → `fetch --waves` (one batch per step level).
 4. `build_summary_dataset.py … --eval-frac 0.33` → `data/dataset_{train,eval}.sft.jsonl` (+ `.dpo.jsonl`).
-5. GPU host: `train_lora.py --stage check --model /data/smoke/qwen35-9b-text --data data/dataset_train.sft.jsonl --max-seq 16384`
-   (trainable tail must begin `\n</think>\n\n`; long rows 11–14k tokens must not be dropped), then
-   `--stage sft --epochs 2 --lr 2e-4 --max-seq 16384 --load-bits 16 --eval-data data/dataset_eval.sft.jsonl`,
+5. GPU host: `train_lora.py --stage check --model /data/smoke/qwen35-9b-text --data data/dataset_train.sft.jsonl --max-seq 8192`
+   (trainable tail must begin `\n</think>\n\n`; the smoke rows are ≤ 6k tokens by estimate — long teacher summaries
+   come out near 800 words, not 3000 — so 8192 fits and nothing may be dropped), then
+   `--stage sft --epochs 2 --lr 2e-4 --max-seq 8192 --load-bits 16 --eval-data data/dataset_eval.sft.jsonl`,
    `--stage merge`, `--stage sample --open-think`, `--stage export`, `ollama create summary-v1 -f Modelfile`.
 6. `eval_summary.py` base (with `--answer-from-reasoning`) vs `summary-v1`, `compare`; then
    `honcho_summary_harness.py` on one eval chain against a live Honcho with `SUMMARY_MODEL_CONFIG__*` swapped.
