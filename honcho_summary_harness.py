@@ -124,6 +124,28 @@ def run(a):
     print("saved", out, file=sys.stderr)
 
 
+def replay(a):
+    d = json.load(open(a.results))
+    rows = {r["id"]: r for r in d["rows"]}
+    if a.step not in rows:
+        raise SystemExit(f"{a.step} not in {a.results}: {sorted(rows)}")
+    chain = sc.load_chains(a.chains, {d["summary"]["chain"]})[0]
+    _, kind, k, _ = sc.parse_step_id(a.step)
+    prev = rows[sc.step_id(chain["id"], kind, k - 1)]["summary"] if k > 0 else ""
+    step = sc.build_step(chain, kind, k, prev, a.max_tokens_short, a.max_tokens_long)
+    live = rows[a.step]
+    print(f"stored {a.step}: {live['words']}w new={live['score'].get('fact_coverage_new')} carry={live['score'].get('fact_coverage_carry')} "
+          f"(Honcho's limit {live['output_words']}; replay limit {step['output_words']}, previous = stored {kind} {k - 1}, {len(prev.split())}w)")
+    for i in range(a.n):
+        r = sc.summarise_step(a.ollama, a.model, step, temperature=a.temperature)
+        if r["error"]:
+            print("  error:", r["error"]); return
+        sc_ = sc.score_step(chain, kind, k, r["summary"], step["output_words"])
+        print(f"  replay {i + 1}: {sc_['words']}w new={sc_.get('fact_coverage_new')} carry={sc_.get('fact_coverage_carry')} fab={sc_['fabrication']} "
+              f"{r['finish_reason']} {r['latency_s']}s | {r['summary'][:140]!r}")
+    print("Same coverage as stored -> the model; much better -> Honcho sent a different prompt (check its message range / previous summary).")
+
+
 def compare(a):
     runs = [json.load(open(p)) for p in a.files]
     labels = [r["summary"].get("label", p) for r, p in zip(runs, a.files)]
@@ -160,8 +182,15 @@ def main():
     p.add_argument("--out", default=None, help="default results/harness-<label>-<ts>.json")
     p = sub.add_parser("compare"); p.set_defaults(fn=compare)
     p.add_argument("files", nargs="+")
+    p = sub.add_parser("replay", help="re-run one stored step against Ollama with the stored previous summary"); p.set_defaults(fn=replay)
+    p.add_argument("results"); p.add_argument("--step", required=True); p.add_argument("--model", required=True)
+    p.add_argument("--ollama", default=os.environ.get("OLLAMA_BASE", "http://node7.ea.org:11434/v1"))
+    p.add_argument("--chains", default="data/chains.jsonl"); p.add_argument("--n", type=int, default=3)
+    p.add_argument("--temperature", type=float, default=None, help="default: none sent (Modelfile decides), as Honcho does")
+    p.add_argument("--max-tokens-short", type=int, default=sp.MAX_TOKENS_SHORT_DEFAULT)
+    p.add_argument("--max-tokens-long", type=int, default=sp.MAX_TOKENS_LONG_DEFAULT)
     argv = sys.argv[1:]
-    if argv and argv[0] not in ("run", "compare", "-h", "--help"):
+    if argv and argv[0] not in ("run", "compare", "replay", "-h", "--help"):
         argv = ["run"] + argv
     a = ap.parse_args(argv)
     if not getattr(a, "fn", None):
