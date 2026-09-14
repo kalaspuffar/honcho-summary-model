@@ -298,7 +298,8 @@ if not QUICK:
         n_steps = sum(len(sc.steps(sc.with_chunks(c))) for c in rows)
         ok(f"gen_summary_rejected: one scored row per step ({n_steps})", r.returncode == 0 and len(rrows) == n_steps and all("score" in x for x in rrows), r.stdout[-300:])
         ok("rejected rows chain their own previous summary", any(x["k"] >= 1 and x["previous_summary"] for x in rrows))
-        ok("mock summaries cover the ledger", all((x["score"].get("fact_coverage_new") or 1.0) >= 0.99 for x in rrows))
+        ok("mock student summaries are scored (drops one fact per chunk by design)", all("fact_coverage_new" in x["score"] for x in rrows)
+           and any((x["score"].get("fact_coverage_new") or 1.0) < 1.0 for x in rrows))
         r = sh("gen_summary_rejected.py", "--chains", chains, "--out", rej, "--base", f"http://127.0.0.1:{p_or}/v1", "--model", "mock")
         ok("gen_summary_rejected is resume-safe", "0 chain-kinds" in r.stdout, r.stdout[-200:])
         rej_t = os.path.join(tmp, "rejected_thinker.jsonl")
@@ -340,6 +341,14 @@ if not QUICK:
         ok("SFT row = exact Honcho prompt + chosen, no system turn", all(len(x["messages"]) == 2 and x["messages"][0]["role"] == "user"
            and "<previous_summary>" in x["messages"][0]["content"] and x["messages"][1]["role"] == "assistant" for x in tr))
         ok("DPO pairs exist and share the prompt with the rejected side (k=0 or base-prev)", dp and all(x["k"] == 0 or x["id"].endswith("b") for x in dp), str(len(dp)))
+        ok("DPO pairs carry a reason and the rejected side is measurably worse", all(x.get("why") in ("dropped_facts", "padded", "format") for x in dp), str([x.get("why") for x in dp][:5]))
+        r = sh("build_summary_dataset.py", "--chains", chains, "--chosen", cho, "--rejected", rej, "--out", ds + "_gap", "--dpo-min-gap", "0.99")
+        dp2 = [json.loads(l) for l in open(ds + "_gap_train.dpo.jsonl")] + [json.loads(l) for l in open(ds + "_gap_eval.dpo.jsonl")]
+        ok("DPO gap filter: an impossible gap keeps only padded/format pairs", r.returncode == 0 and all(x["why"] != "dropped_facts" for x in dp2), str(len(dp2)))
+        r = sh("eval_summary.py", "--chains", chains, "--ids-from", ds + "_eval.sft.jsonl", "--extra-chains", chains, "--model", "mock", "--base", f"http://127.0.0.1:{p_or}/v1", "--out", os.path.join(tmp, "eval_extra.jsonl"))
+        ok("eval --extra-chains adds every chain of the extra file", r.returncode == 0 and json.load(open(os.path.join(tmp, "eval_extra.summary.json")))["chains"] == len(rows), r.stderr[-300:])
+        r = sh("gen_summary_chosen.py", "estimate", "--chains", chains, "--model", "opus", "--exclude-chains-of", ds + "_eval.sft.jsonl")
+        ok("chosen --exclude-chains-of drops the eval chains", r.returncode == 0 and "steps=" in r.stdout and int(re.search(r"steps=(\d+)", r.stdout).group(1)) < n_steps, r.stdout[-200:])
         import build_summary_dataset as _bd
         ok("kept rows are under the build's max ratio", all(len(x["messages"][1]["content"].split()) <= 0.8 * int(re.search(r"Hard limit: (\d+)", x["messages"][0]["content"]).group(1)) for x in tr + ev))
         ev_out = os.path.join(tmp, "eval_mock.jsonl")

@@ -287,6 +287,11 @@ def write_out(out, new_rows, chosen):
 
 def _setup(a):
     chains = sc.load_chains(a.chains, set(a.only.split(",")) if getattr(a, "only", "") else None)
+    if getattr(a, "exclude_chains_of", ""):
+        drop = {r.get("chain") or r["id"] for f in a.exclude_chains_of.split(",") for r in be.read_jsonl(f)}
+        chains = [c for c in chains if c["id"] not in drop]
+        if not chains:
+            raise SystemExit("every chain excluded")
     rejected = load_rejected(a.rejected)
     out = a.out or os.path.join(os.path.dirname(a.chains), "chosen.jsonl")
     chosen = invalidate_chain({r["id"]: r for r in be.read_jsonl(out)})
@@ -443,6 +448,7 @@ def cmd_submit(a):
     path = be.write_manifest(KIND, {"batch_id": b["id"], "model": str(spec), "model_alias": a.model, "n": len(jobs), "out": out,
                                     "chains": os.path.abspath(a.chains), "rejected": os.path.abspath(a.rejected) if a.rejected else None,
                                     "base_prev_share": a.base_prev_share, "blind": a.blind, "effort": a.effort,
+                                    "exclude_chains_of": getattr(a, "exclude_chains_of", ""), "only": getattr(a, "only", ""),
                                     "max_tokens_short": a.max_tokens_short, "max_tokens_long": a.max_tokens_long,
                                     "est_usd": round(usd, 3), "metas": metas})
     print(f"submitted batch {b['id']} ({len(jobs)} requests) -> manifest {path}")
@@ -507,6 +513,7 @@ def cmd_fetch(a):
     # loop: submit the next wave with the manifest's settings, wait, fetch — until nothing is left
     ns = argparse.Namespace(chains=m["chains"], rejected=m.get("rejected"), out=m["out"], model=m.get("model_alias", m["model"]),
                             effort=m.get("effort", "medium"), base_prev_share=m.get("base_prev_share", 0.3), blind=m.get("blind", False),
+                            exclude_chains_of=m.get("exclude_chains_of", ""), only=m.get("only", ""),
                             max_tokens_short=m.get("max_tokens_short", sp.MAX_TOKENS_SHORT_DEFAULT),
                             max_tokens_long=m.get("max_tokens_long", sp.MAX_TOKENS_LONG_DEFAULT))
     for wave in range(1, 20):
@@ -536,6 +543,7 @@ def main():
         p.add_argument("--max-tokens-short", type=int, default=sp.MAX_TOKENS_SHORT_DEFAULT, help="Honcho SUMMARY_MAX_TOKENS_SHORT")
         p.add_argument("--max-tokens-long", type=int, default=sp.MAX_TOKENS_LONG_DEFAULT, help="Honcho SUMMARY_MAX_TOKENS_LONG")
         p.add_argument("--only", default="", help="comma-separated chain ids (pilot a few chains before a full batch)")
+        p.add_argument("--exclude-chains-of", default="", help="dataset/results file(s) whose chains are skipped (keep eval chains out of pair generation)")
 
     p = sub.add_parser("estimate"); common(p); p.set_defaults(fn=cmd_estimate)
     p = sub.add_parser("run", help="concurrent chains, sequential steps (Anthropic sync or OpenRouter)"); common(p)

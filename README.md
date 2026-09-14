@@ -59,6 +59,16 @@ python3 eval_summary.py --chains data/chains.jsonl --ids-from data/dataset_eval.
 python3 eval_summary.py --chains data/chains.jsonl --ids-from data/dataset_eval.sft.jsonl --model summary-v1  --out results/eval_v1.jsonl
 python3 eval_summary.py compare results/eval_base.jsonl results/eval_v1.jsonl
 python3 honcho_summary_harness.py --base http://honcho:8000 --workspace summary-check --chain data/chains.jsonl:c00003 --label v1
+
+# PLAN §11 "retention" phase: eval-only chains, on-policy pairs, DPO on top of the shipped adapter
+python3 gen_sessions.py submit --n 20 --start 100 --model opus --out data/chains_eval2.jsonl && python3 gen_sessions.py fetch
+python3 gen_summary_rejected.py --chains data/chains.jsonl --out data/prev_smoke.jsonl --model summary-smoke        # student on every chain
+python3 gen_summary_chosen.py submit --chains data/chains.jsonl --rejected data/prev_smoke.jsonl --base-prev-share 1.0 \
+        --exclude-chains-of data/dataset_eval.sft.jsonl --out data/chosen.jsonl && python3 gen_summary_chosen.py fetch --waves
+python3 build_summary_dataset.py --chains data/chains.jsonl --chosen data/chosen.jsonl --rejected data/prev_smoke.jsonl \
+        --eval-chains data/dataset_eval.sft.jsonl --out data/dataset_r                                              # *.dpo.jsonl = informative pairs
+python3 eval_summary.py --chains data/chains.jsonl --ids-from data/dataset_eval.sft.jsonl --extra-chains data/chains_eval2.jsonl \
+        --model summary-smoke --max-tokens-short 1500 --out results/eval30_smoke_1.jsonl                          # the 30-chain ruler
 ```
 
 Every generation script takes `--max-tokens-short/--max-tokens-long` (Honcho's

@@ -97,8 +97,9 @@ def mock_chain(n=60, k=1, three=False):
 
 def mock_summary(user_text, bullets=False, verb="said"):
     """Previous summary + every new message content, capped at 80% of the stated hard limit.
-    The teacher mock (system mentions "reference summariser") uses verb="mentioned" so chosen and
-    rejected differ and a DPO pair can form."""
+    The teacher mock (system mentions "reference summariser") uses verb="mentioned" and keeps every line;
+    the student mock (verb "said") drops the last fact-bearing line, so chosen and rejected differ and the
+    rejected side is measurably worse (build_summary_dataset's DPO gap filter)."""
     prev = re.search(r"<previous_summary>\n(.*?)\n</previous_summary>", user_text, re.S)
     conv = re.search(r"<conversation>\n(.*?)\n</conversation>", user_text, re.S)
     lim = re.search(r"Hard limit: (\d+) words", user_text)
@@ -111,6 +112,8 @@ def mock_summary(user_text, bullets=False, verb="said"):
             if "Noted." in txt or "Not much more" in txt:
                 continue
             parts.append(f"{who} {verb} {txt.rstrip('.')}.")
+    if verb == "said" and len(parts) > 1:
+        parts = parts[:-1]          # the mock STUDENT drops the newest fact-bearing line (so DPO pairs have a measurable gap)
     text = " ".join(parts) or "The peers exchanged greetings."
     if bullets:
         text = "\n".join("- " + p for p in parts) or "- nothing"

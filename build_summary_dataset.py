@@ -113,6 +113,9 @@ def main():
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--max-tokens-short", type=int, default=None, help="default: from the chosen rows")
     ap.add_argument("--max-tokens-long", type=int, default=None)
+    ap.add_argument("--dpo-min-gap", type=float, default=0.05,
+                    help="a DPO pair is kept only if the rejected side is measurably worse: carry or new coverage lower by "
+                         "at least this, or over the limit, or a format flag, or >25%% longer than chosen (padding)")
     a = ap.parse_args()
 
     chains = {c["id"]: c for c in sc.load_chains(a.chains)}
@@ -153,7 +156,20 @@ def main():
     if a.rejected:
         for r in be.read_jsonl(a.rejected):
             if not be.failed(r) and (r.get("summary") or "").strip() and r.get("chain") in chains:
+                r["score"] = sc.score_step(chains[r["chain"]], r["kind"], r["k"], r["summary"], r["output_words"])
                 rejected[(r["chain"], r["kind"], r["k"])] = r
+
+    def worse(rej, cho, gap):
+        """Is the student's summary measurably worse than the teacher's for the same prompt? (PLAN §11 step 1)"""
+        rs, cs = rej["score"], cho["score"]
+        for key in ("fact_coverage_carry", "fact_coverage_new"):
+            if rs.get(key) is not None and cs.get(key) is not None and cs[key] - rs[key] >= gap:
+                return "dropped_facts"
+        if rs["over_limit"] or ss.words(rej["summary"]) > 1.25 * ss.words(cho["summary"]):
+            return "padded"
+        if any(rs.get(f) for f in ("bullets", "meta", "think_leak", "echo", "narration")):
+            return "format"
+        return ""
 
     for name, pred in (("train", lambda cid: cid not in eval_ids), ("eval", lambda cid: cid in eval_ids)):
         rows = [r for r in kept if pred(r["chain"])]
@@ -162,7 +178,7 @@ def main():
         be.write_jsonl(f"{a.out}_{name}.sft.jsonl", sft)
         line = f"{name}: {len(sft)} SFT rows ({sum(1 for r in sft if r['kind']=='short')} short, {sum(1 for r in sft if r['kind']=='long')} long) -> {a.out}_{name}.sft.jsonl"
         if a.rejected:
-            dpo = []
+            dpo, why = [], Counter()
             for r in rows:
                 rej = rejected.get((r["chain"], r["kind"], r["k"]))
                 same_prompt = rej is not None and (r["variant"] == "base_prev" or r["k"] == 0) and \
@@ -171,10 +187,15 @@ def main():
                     continue
                 if rej["summary"].strip() == r["summary"].strip():
                     continue
-                dpo.append({"id": r["id"], "chain": r["chain"], "kind": r["kind"], "k": r["k"], "category": r["category"],
+                reason = worse(rej, r, a.dpo_min_gap)
+                if not reason:
+                    why["student_not_worse"] += 1
+                    continue
+                why[reason] += 1
+                dpo.append({"id": r["id"], "chain": r["chain"], "kind": r["kind"], "k": r["k"], "category": r["category"], "why": reason,
                             "prompt": prompt_for(chains[r["chain"]], r, mts, mtl), "chosen": r["summary"], "rejected": rej["summary"]})
             be.write_jsonl(f"{a.out}_{name}.dpo.jsonl", dpo)
-            line += f"; {len(dpo)} DPO pairs -> {a.out}_{name}.dpo.jsonl"
+            line += f"; {len(dpo)} DPO pairs -> {a.out}_{name}.dpo.jsonl {json.dumps(dict(why))}"
         print(line)
 
 

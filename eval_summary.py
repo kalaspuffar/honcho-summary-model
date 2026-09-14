@@ -72,11 +72,28 @@ def write_summary(out, rows, meta):
     return summ
 
 
+def select_chains(a):
+    """--chains may list several files (comma-separated); --ids-from restricts them; --extra-chains adds every
+    good chain of another file (eval-only chains that never enter a dataset — PLAN §11 step 2)."""
+    chains = []
+    for path in a.chains.split(","):
+        ids = {r.get("chain") or r["id"] for r in be.read_jsonl(a.ids_from)} if a.ids_from else None
+        try:
+            chains += sc.load_chains(path, ids)
+        except SystemExit:
+            if ids is None:
+                raise
+    for path in (a.extra_chains.split(",") if a.extra_chains else []):
+        chains += sc.load_chains(path)
+    seen = set()
+    chains = [c for c in chains if not (c["id"] in seen or seen.add(c["id"]))]
+    if not chains:
+        raise SystemExit("no chains selected")
+    return chains
+
+
 def run(a):
-    ids = None
-    if a.ids_from:
-        ids = {r.get("chain") or r["id"] for r in be.read_jsonl(a.ids_from)}
-    chains = sc.load_chains(a.chains, ids)
+    chains = select_chains(a)
     if a.limit:
         chains = chains[:a.limit]
     kinds = list(sc.KINDS) if a.kind == "both" else [a.kind]
@@ -118,7 +135,9 @@ def run(a):
 def rescore(a):
     """Re-score an existing results jsonl with the current summary_scoring.py (scorer changes must
     not require re-running the model)."""
-    chains = {c["id"]: c for c in sc.load_chains(a.chains)}
+    chains = {}
+    for path in a.chains.split(","):
+        chains.update({c["id"]: c for c in sc.load_chains(path)})
     rows = be.read_jsonl(a.file)
     for r in rows:
         if be.failed(r):
@@ -174,8 +193,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd")
     p = sub.add_parser("run"); p.set_defaults(fn=run)
-    p.add_argument("--chains", required=True)
+    p.add_argument("--chains", required=True, help="chain file(s), comma-separated")
     p.add_argument("--ids-from", default=None, help="dataset jsonl whose rows' `chain` ids select the eval chains")
+    p.add_argument("--extra-chains", default=None, help="chain file(s) whose EVERY good chain is added (eval-only chains)")
     p.add_argument("--model", required=True)
     p.add_argument("--base", default=None, help="default: OLLAMA_BASE, or OPENROUTER_BASE for OpenRouter models")
     p.add_argument("--out", required=True)
