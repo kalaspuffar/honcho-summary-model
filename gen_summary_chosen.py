@@ -167,7 +167,7 @@ def to_row(chain, kind, k, variant, previous_from, step, result, teacher, attemp
     row = {"id": sc.step_id(chain["id"], kind, k, variant), "chain": chain["id"], "category": chain.get("category"),
            "kind": kind, "k": k, "variant": "base_prev" if variant else "clean", "previous_from": previous_from,
            "previous_summary": step["previous_summary"], "output_words": step["output_words"],
-           "max_tokens": step["max_tokens"], "teacher": teacher, "attempts": attempts}
+           "max_tokens": step["max_tokens"], "teacher": teacher, "attempts": attempts, "target_ratio": TARGET_RATIO}
     text = (result.get("text") or "").strip()
     row["stop_reason"] = result.get("stop_reason")
     if result.get("error") or not text:
@@ -246,6 +246,12 @@ def invalidate_chain(chosen):
     mid-sentence — the signature of the max_tokens cut."""
     for r in chosen.values():
         r.setdefault("attempts", 1)
+        if r.get("target_ratio") != TARGET_RATIO:
+            # attempts were spent against a different length target (2026-09-14: 0.9 -> 0.8 declared 12 steps given
+            # up without one try at the new budget); give the row a fresh compress budget under the current target
+            if be.failed(r) and over_budget(r) or (not be.failed(r) and over_budget(r)):
+                r["attempts"] = min(r["attempts"], 1)
+            r["target_ratio"] = TARGET_RATIO
         if "stop_reason" not in r and not be.failed(r) and r.get("summary") and not CUT_END.search(r["summary"]):
             r["__failed__"] = f"__FAILED__: legacy row cut mid-sentence ({r.get('words')} words)"
         elif not be.failed(r) and over_budget(r):

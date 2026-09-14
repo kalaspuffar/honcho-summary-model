@@ -226,6 +226,11 @@ inv2 = gc.invalidate_chain(dict(ob))
 ok("chosen: over-budget row fails and its dependant goes stale; attempts default to 1",
    be.failed(inv2["c3-s0"]) and "over budget" in inv2["c3-s0"]["__failed__"] and be.failed(inv2["c3-s1"]) and inv2["c3-s1"]["attempts"] == 1)
 ok("chosen: a row at MAX_ATTEMPTS is given up, a first failure is not", gc.gave_up(inv2["c3-s2"]) and not gc.gave_up(inv2["c3-s0"]))
+_old = {"c4-s0": {"id": "c4-s0", "summary": "w " * 170, "words": 170, "output_words": 200, "previous_from": None, "stop_reason": "end_turn",
+                  "attempts": 3, "target_ratio": 0.9}}
+_inv3 = gc.invalidate_chain(dict(_old))
+ok("chosen: a row that spent its attempts under an older target gets a fresh budget under the current one",
+   be.failed(_inv3["c4-s0"]) and not gc.gave_up(_inv3["c4-s0"]) and _inv3["c4-s0"]["attempts"] == 1 and _inv3["c4-s0"]["target_ratio"] == gc.TARGET_RATIO)
 ok("chosen: --only restricts the chains", [c["id"] for c in sc.load_chains(chains if False else "data/chains.jsonl", {"c00000"})] == ["c00000"] if os.path.exists("data/chains.jsonl") else True)
 ok("scorer: 1/15 is not the number 15", not ss.has_fact("whether 1/15 sec is too slow for her prints", "fifteen prints", strict=True)
    and ss.has_fact("she chose 1/15 sec", "1/15 sec"))
