@@ -193,3 +193,23 @@ and has a real thinking-off switch. Same 94 rows, pinned eval, so the only varia
 4. `eval_summary.py … --model summary-q3 --max-tokens-short 1500` twice; `compare` against
    `results/eval_summary-smoke_mt1500.jsonl` and `_2`. Watch `answered_in_thinking_rows` and `think_leak_rows`
    first (template/parser issues show there), then carry / cut / over-limit.
+
+**Qwen3-8B result (2026-09-14)**: check/sample/template all clean (0 answered-in-thinking, 0 think leaks in
+80 steps — the generic label path and Ollama's Qwen3 parser agree). Same 94 rows, pinned eval @1500, two runs:
+
+| short, 40 steps | smoke (Qwen3.5-9B) ×2 | q3 (Qwen3-8B) ×2 |
+|---|---|---|
+| carry (median) | 0.86, 0.89 | 0.92, 0.91 |
+| multi-peer carry | 0.81, 0.80 | **0.91, 0.95** (no c00022 collapse in either run) |
+| median words / ratio | 464–488 / 0.70–0.71 | 593–607 / 0.76 (deep steps 850–930 of 1125) |
+| over limit / cut | 0 / 0, 0 / 0 | 0 / 0, **3** / 0 (k=0 steps with small limits: 416/387, 251/247, 726/620) |
+| fabrication rows | 0, 0 | 0, **2** (c00011-s2/s3 — to verify against the text) |
+| long new (10) | 0.98, 0.96 | 0.96, 0.91 |
+| latency | 10.9 s | 12.4–15.3 s (≈ 25 % more words; no per-word speed win) |
+
+Reading: q3 carries a little more, most visibly on multi-peer, and pays for it with ~25 % longer summaries, three
+small-limit overshoots in one run, two fabrication flags (unverified) and slightly weaker long summaries.
+Neither the carry gain (≈ noise) nor the losses are decisive; at the default 1000 cap q3's length would make it
+the more truncation-prone of the two. Decision: **smoke stays the ship candidate** (4 runs, 0 over-limit,
+0 fabrication, shortest output); q3 kept as the alternative if multi-peer robustness turns out to matter in
+production. Base-model choice is not where the remaining variance lives — chain cascades are.
