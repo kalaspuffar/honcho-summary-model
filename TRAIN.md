@@ -178,3 +178,18 @@ the limit) at the price of ~0.04 carry versus @1000 and an occasional early slip
 requirement is "never cut" (a cut loses the newest chunk outright), so **ship: smoke, temperature 0.1,
 `SUMMARY_MAX_TOKENS_SHORT=1500`.** Greedy-with-padding is the one behaviour a small length-preference (DPO §7)
 could target later: pairs concise-vs-padded for the same prompt exist for free in these eval files.
+
+## Experiment: Qwen3-8B on the smoke dataset (planned 2026-09-14)
+
+Rationale: text conversion, not tool calling; Qwen3-8B is dense (no linear-attention layers, Ollama fast path)
+and has a real thinking-off switch. Same 94 rows, pinned eval, so the only variable is the base.
+1. `python3 train_lora.py --stage check --model Qwen/Qwen3-8B --data data/dataset_train.sft.jsonl --max-seq 8192`
+   — Qwen3's template does not prefill `<think>\n`, so the generic label path is used: the trainable text must
+   start `<think>\n\n</think>\n\n` followed by the summary. If it starts with the summary directly, stop: the
+   model would then open its own think block at inference and Ollama would file the answer as reasoning.
+2. `--stage sft … --out runs/q3-sft --max-seq 8192 --load-bits 16` (same epochs/lr), `--stage sample --model runs/q3-sft/merged --data data/dataset_eval.sft.jsonl --max-new 200`
+   (no `--open-think`): raw output must begin with the empty think block, then prose.
+3. `--stage export --out runs/q3-gguf`; Modelfile FROM that GGUF, temperature 0.1; `ollama create summary-q3`.
+4. `eval_summary.py … --model summary-q3 --max-tokens-short 1500` twice; `compare` against
+   `results/eval_summary-smoke_mt1500.jsonl` and `_2`. Watch `answered_in_thinking_rows` and `think_leak_rows`
+   first (template/parser issues show there), then carry / cut / over-limit.
