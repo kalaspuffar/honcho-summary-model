@@ -19,7 +19,7 @@ Filters on a chosen row (all must hold):
   fact_coverage_carry >= --min-coverage        when earlier facts are due (the merge metric)
   latest_state == 1.0 when any value has changed
   fabrication False; bullets/meta/think_leak/narration/echo False
-  words <= --max-ratio (0.9) * output_words
+  words <= --max-ratio (0.8) * output_words
 The prompt is rebuilt from the chain + the stored previous_summary, so a row trains exactly what
 Honcho will send. Rows are never truncated here; train_lora.py drops rows above --max-seq.
 """
@@ -105,7 +105,7 @@ def main():
     ap.add_argument("--rejected", default=None, help="stage-2 rows -> also write DPO pairs")
     ap.add_argument("--out", default="data/dataset")
     ap.add_argument("--min-coverage", type=float, default=0.9)
-    ap.add_argument("--max-ratio", type=float, default=0.9, help="chosen words / output_words ceiling")
+    ap.add_argument("--max-ratio", type=float, default=0.8, help="chosen words / output_words ceiling (0.8: 750 words ≈ 1000 tokens = Honcho's cap; PLAN §10 2026-09-14)")
     ap.add_argument("--eval-frac", type=float, default=0.3, help="share of chains held out (PLAN §9: 10 of 30 for the smoke)")
     ap.add_argument("--eval-chains", default=None, help="pin the eval set to the chains of this dataset file (e.g. the smoke's "
                     "dataset_eval.sft.jsonl) so two models are scored on identical chains; new chains sharing a human peer name "

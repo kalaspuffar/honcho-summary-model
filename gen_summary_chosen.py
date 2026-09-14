@@ -45,8 +45,12 @@ import summary_prompt as sp
 import summary_scoring as ss
 
 KIND = "chosen"
-TARGET_RATIO = 0.9    # train under the limit: models overshoot (PLAN §2.2)
-PROMPT_RATIO = 0.75   # the numeric budget the teacher is given; it overshoots an ask by 6–13 points (smoke: asked 85 %, wrote 91–105 %)
+# 2026-09-14: 0.9 -> 0.8. Honcho's word limit is 0.75 x max_tokens, i.e. 750 words in a 1000-token cap, and a word
+# is ~1.3 tokens: the smoke model, trained on rows near 0.9, wrote 650-780 words at deep steps and 17/152 short
+# steps on the 30 new chains were cut at max_tokens — always losing the newest chunk. Cut rows started at ~620
+# words, so the safe ceiling is ~0.8 of the limit; the teacher is asked for 0.7 (it overshoots by 6-13 points).
+TARGET_RATIO = 0.8    # train under the limit: models overshoot (PLAN §2.2), and 0.8 x limit ≈ 0.93 x max_tokens
+PROMPT_RATIO = 0.7    # the numeric budget the teacher is given
 MAX_ATTEMPTS = 3      # fresh write, then up to two COMPRESS passes of the over-budget draft; then given up (reported, not retried)
 COMPRESS_EFFORT = "low"   # a rewrite-to-length needs no deep thinking; the pilot's failures were 0.91–0.95 of the limit
 # The teacher's own output budget. NOT Honcho's max_tokens: on Claude 5 the thinking tokens count against

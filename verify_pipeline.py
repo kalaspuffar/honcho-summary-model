@@ -335,7 +335,8 @@ if not QUICK:
         ok("SFT row = exact Honcho prompt + chosen, no system turn", all(len(x["messages"]) == 2 and x["messages"][0]["role"] == "user"
            and "<previous_summary>" in x["messages"][0]["content"] and x["messages"][1]["role"] == "assistant" for x in tr))
         ok("DPO pairs exist and share the prompt with the rejected side (k=0 or base-prev)", dp and all(x["k"] == 0 or x["id"].endswith("b") for x in dp), str(len(dp)))
-        ok("kept rows are under 0.9x the limit", all(len(x["messages"][1]["content"].split()) <= 0.9 * int(re.search(r"Hard limit: (\d+)", x["messages"][0]["content"]).group(1)) for x in tr + ev))
+        import build_summary_dataset as _bd
+        ok("kept rows are under the build's max ratio", all(len(x["messages"][1]["content"].split()) <= 0.8 * int(re.search(r"Hard limit: (\d+)", x["messages"][0]["content"]).group(1)) for x in tr + ev))
         ev_out = os.path.join(tmp, "eval_mock.jsonl")
         r = sh("eval_summary.py", "--chains", chains, "--ids-from", ds + "_eval.sft.jsonl", "--model", "mock", "--base", f"http://127.0.0.1:{p_or}/v1", "--out", ev_out)
         summ = json.load(open(os.path.join(tmp, "eval_mock.summary.json"))) if os.path.exists(os.path.join(tmp, "eval_mock.summary.json")) else {}
