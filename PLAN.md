@@ -291,3 +291,31 @@ serving budget on node7 alongside the dialectic model); the combined dialectic+s
 
 Budget for steps 1–3: ≈ $8–10 Anthropic, ~4 GPU-hours, two evenings. Expected outcome: carried coverage at deep
 steps from ~0.82 to ~0.9, and a length behaviour that stays put when the operator changes the cap.
+
+## 12. Scaled workflow — $200–300 (written 2026-09-14, proposal)
+
+Principle from §10: more rows of the *same* distribution bought nothing twice. Money is spent only on
+(a) measuring failure classes the current eval cannot see, (b) on-policy preference data at scale,
+(c) session shapes the current mix never produced — each behind a gate that says "measured gap" first.
+
+| phase | what | cost | gate to the next phase |
+|---|---|---|---|
+| **A. Widen the ruler** | 40 eval-only chains (no teacher summaries) on dimensions the mix lacks: **language** (Swedish, mixed sv/en — the prompt never names a language; an English-only model may answer in English or degrade), **length** (200–300 messages → 10–15 short steps and 3–5 long steps, so *long-summary carry* is finally measured: today 3 rows), **4–5 peers**, **message shape** (code blocks, tables, URLs, very long assistant turns, one-word replies), **topic switches**. Run the shipped model on them, two runs, per-dimension breakdown. | ≈ $12 chains | Any dimension with carry < 0.8, new < 0.9, format flags, or cuts is a *measured* gap → phase C generates for it. Dimensions that pass get no training data. |
+| **B. Retention DPO at scale** | On-policy pairs: run the student on every training chain (own previous), have the teacher write the ideal summary for *the student's exact prompt* at every step (not 30 %), filter with the scorer; pair chosen vs the student's own output where the student dropped facts or padded. ~600 pairs from the existing 57 chains; +~600 from phase C's chains later. Train on top of the smoke adapter; two evals on the phase-A ruler. Iterate once (student₂ → new pairs → student₃): "expert iteration". | ≈ $35 per round (teacher at 3 ¢/step), 2 rounds | Deep-step carry up by > the run spread with 0 over-limit / 0 fabrication → keep; else stop DPO. |
+| **C. Targeted SFT for measured gaps** | 60–90 chains only in the dimensions phase A flagged (e.g. Swedish, 240-message, 5-peer), teacher summaries, best-of-3 teacher samples on dense deep steps (scorer picks; replaces "given up" steps), the 0.8 ceiling. Merge with the 94 smoke rows (not the 243: same lesson) and retrain; then phase B's second round on top. | ≈ $25 chains + ≈ $60 teacher (+50 % for best-of-3 on ~20 % of steps) | Per-dimension gain on the phase-A ruler; other dimensions unchanged within spread. |
+| **D. Base under the final recipe** | Qwen3.5-9B vs Qwen3-8B with C+B. Optional: Qwen3-14B QLoRA feasibility (A6000 fits 4-bit; serving next to the dialectic model on node7 is the open question). | GPU only | Ship the better on the full ruler; 14B only if it fits node7 and beats 9B by more than the spread. |
+| **E. Live loop** | Monthly harness run on the production slot with a rotating eval chain; read-only look at *where* real sessions lose facts (never content — §2) to propose new synthetic dimensions. | $0 | — |
+
+**Totals:** A $12 + B $70 + C $85 ≈ **$170**, headroom to $250 for a second C round if phase A finds more than
+two failing dimensions. GPU: ~15 hours over the phases. Calendar: two to three weeks part-time.
+
+**Tooling to build first (no API cost; ~a day):** `gen_sessions.py --language sv|mixed`, `--peers 4-5`,
+`--shape code|tables|long-turns|terse`, `LENGTHS` up to 300 (steps then 15 short / 5 long — `summary_chain`
+already generic); `gen_summary_chosen.py --pairs-from <student.jsonl> --share 1.0` (teacher for every student
+prompt) and `--best-of 3` (scorer picks); `build_summary_dataset.py` DPO output already pairs identical prompts;
+`eval_summary.py` breakdown by the new dimensions (language, n_peers, shape) — chains carry the tags.
+`train_lora.py --stage dpo` exists (dialectic recipe; lr sized per TRAIN.md carry-over).
+
+**What this does not buy:** a guarantee. The honest expectation from §10 is that B moves deep-step carry from
+~0.82 toward ~0.9 and that C fixes whatever A finds (a Swedish gap, if there is one, would be the single
+largest win available). The ruler (A) is the part that makes the rest reportable to a manager.
