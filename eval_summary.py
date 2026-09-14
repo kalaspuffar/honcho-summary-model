@@ -45,8 +45,28 @@ def summary_path(out):
     return os.path.splitext(out)[0] + ".summary.json"
 
 
+def breakdown(rows, kind):
+    """median new/carry coverage and over-limit count per category and per step k (where the smoke was weak)."""
+    out = {"by_category": {}, "by_k": {}}
+    rs = [r for r in rows if r["kind"] == kind and not be.failed(r)]
+    def med(xs):
+        xs = [x for x in xs if x is not None]
+        return round(statistics.median(xs), 3) if xs else None
+    for key, sel in (("by_category", lambda r: r.get("category")), ("by_k", lambda r: r["k"])):
+        groups = {}
+        for r in rs:
+            groups.setdefault(sel(r), []).append(r)
+        for g, grs in sorted(groups.items(), key=lambda kv: str(kv[0])):
+            out[key][str(g)] = {"n": len(grs), "new": med([r["score"].get("fact_coverage_new") for r in grs]),
+                                "carry": med([r["score"].get("fact_coverage_carry") for r in grs]),
+                                "over": sum(1 for r in grs if r["score"]["over_limit"]),
+                                "flags": sum(1 for r in grs if any(r["score"].get(f) for f in ("bullets", "meta", "think_leak", "echo", "empty")))}
+    return out
+
+
 def write_summary(out, rows, meta):
-    summ = {**meta, "n_rows": len(rows), "short": aggregate(rows, "short"), "long": aggregate(rows, "long")}
+    summ = {**meta, "n_rows": len(rows), "short": aggregate(rows, "short"), "long": aggregate(rows, "long"),
+            "short_breakdown": breakdown(rows, "short"), "long_breakdown": breakdown(rows, "long")}
     with open(summary_path(out), "w") as f:
         json.dump(summ, f, indent=2)
     return summ
@@ -137,6 +157,17 @@ def compare(a):
         print(f"{'scored_from_reasoning':{w}}" + "".join(f"{str(t.get('scored_from_reasoning', '')):>22}" for t in tables))
         for k in KEYS:
             print(f"{k:{w}}" + "".join(f"{str((t.get(kind) or {}).get(k, '')):>22}" for t in tables))
+        for key, title in (("by_category", "carry / new by category"), ("by_k", "carry / new by step k")):
+            groups = sorted({g for t in tables for g in (t.get(f"{kind}_breakdown") or {}).get(key, {})})
+            if not groups:
+                continue
+            print(f"-- {title}")
+            for g in groups:
+                cells = []
+                for t in tables:
+                    b = (t.get(f"{kind}_breakdown") or {}).get(key, {}).get(g)
+                    cells.append("-" if not b else f"{b['carry'] if b['carry'] is not None else '-'} / {b['new'] if b['new'] is not None else '-'} (n={b['n']})")
+                print(f"{g:{w}}" + "".join(f"{c:>22}" for c in cells))
 
 
 def main():

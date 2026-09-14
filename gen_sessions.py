@@ -118,9 +118,11 @@ def category_sequence():
     return [c for _, c in slots]
 
 
-def plan(n, start, seed):
+def plan(n, start, seed, only=None):
     rnd = random.Random(seed)
-    cats = category_sequence()
+    cats = [c for c in category_sequence() if not only or c in only]
+    if not cats:
+        raise SystemExit(f"--only-categories matched nothing; choose from {', '.join(CATEGORIES)}")
     themes = THEMES[:]
     rnd.shuffle(themes)                       # cycle a shuffled list: no repeated theme within len(THEMES) rows
     rows = []
@@ -286,7 +288,7 @@ def _ordered(rows, metas):
 # ------------------------------------------------------------------ commands
 def cmd_estimate(a):
     spec = be.resolve_model(a.model)
-    metas = plan(a.n, a.start, a.seed)
+    metas = _plan(a)
     jobs = [make_job(m) for m in metas]
     per = sum(out_tokens(m) for m in metas) // max(1, len(metas))
     for batch in ((False, True) if spec.provider == "anthropic" else (False,)):
@@ -295,8 +297,13 @@ def cmd_estimate(a):
     return 0
 
 
+def _plan(a):
+    only = {c.strip() for c in a.only_categories.split(",") if c.strip()} if getattr(a, "only_categories", "") else None
+    return plan(a.n, a.start, a.seed, only)
+
+
 def _todo(a):
-    metas = plan(a.n, a.start, a.seed)
+    metas = _plan(a)
     existing = {r["id"]: r for r in be.read_jsonl(a.out)}
     return metas, [m for m in metas if m["id"] not in existing or be.failed(existing[m["id"]])]
 
@@ -392,6 +399,7 @@ def main():
         p.add_argument("--start", type=int, default=0, help="first id number (append runs)")
         p.add_argument("--seed", type=int, default=7)
         p.add_argument("--out", default="data/chains.jsonl")
+        p.add_argument("--only-categories", default="", help="comma-separated subset of the mix (targeted runs), e.g. multi-peer,supersession")
         if needs_model:
             p.add_argument("--model", default="opus", help=f"alias ({', '.join(sorted(be.MODELS))}), anthropic:<id> or openrouter:<vendor/model>")
             p.add_argument("--effort", default="medium", choices=["low", "medium", "high", "xhigh", "max", ""],

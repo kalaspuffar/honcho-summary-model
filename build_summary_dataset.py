@@ -107,6 +107,9 @@ def main():
     ap.add_argument("--min-coverage", type=float, default=0.9)
     ap.add_argument("--max-ratio", type=float, default=0.9, help="chosen words / output_words ceiling")
     ap.add_argument("--eval-frac", type=float, default=0.3, help="share of chains held out (PLAN §9: 10 of 30 for the smoke)")
+    ap.add_argument("--eval-chains", default=None, help="pin the eval set to the chains of this dataset file (e.g. the smoke's "
+                    "dataset_eval.sft.jsonl) so two models are scored on identical chains; new chains sharing a human peer name "
+                    "with them are dropped from train, not moved")
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--max-tokens-short", type=int, default=None, help="default: from the chosen rows")
     ap.add_argument("--max-tokens-long", type=int, default=None)
@@ -134,8 +137,17 @@ def main():
               f"median words short {sorted(r['words'] for r in kept if r['kind']=='short')[len([r for r in kept if r['kind']=='short'])//2] if any(r['kind']=='short' for r in kept) else '-'} "
               f"long {sorted(r['words'] for r in kept if r['kind']=='long')[len([r for r in kept if r['kind']=='long'])//2] if any(r['kind']=='long' for r in kept) else '-'}")
 
-    eval_ids, moved = split_by_persona(chains, a.eval_frac, a.seed)
-    print(f"split: {len(chains) - len(eval_ids)} train chains, {len(eval_ids)} eval chains ({moved} moved to eval for a shared peer name)")
+    if a.eval_chains:
+        eval_ids = {r.get("chain") or r["id"] for r in be.read_jsonl(a.eval_chains)} & set(chains)
+        eval_names = {n.lower() for cid in eval_ids for n in sc.peer_names(chains[cid], humans_only=True)}
+        clash = {cid for cid in chains if cid not in eval_ids and eval_names & {n.lower() for n in sc.peer_names(chains[cid], humans_only=True)}}
+        chains = {cid: c for cid, c in chains.items() if cid not in clash}
+        kept = [r for r in kept if r["chain"] in chains]
+        print(f"split: pinned eval set from {a.eval_chains}: {len(eval_ids)} eval chains, {len(chains) - len(eval_ids)} train chains "
+              f"({len(clash)} train chains dropped for a shared peer name: {sorted(clash)})")
+    else:
+        eval_ids, moved = split_by_persona(chains, a.eval_frac, a.seed)
+        print(f"split: {len(chains) - len(eval_ids)} train chains, {len(eval_ids)} eval chains ({moved} moved to eval for a shared peer name)")
 
     rejected = {}
     if a.rejected:

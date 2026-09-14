@@ -205,6 +205,7 @@ ok("validate drops non-verbatim facts and distractors that appear in the text", 
    and [d["text"] for d in row2["distractors"]] == ["Lake Orrin"])
 ok("validate rejects < 60 messages", gs.validate(dict(mc, messages=mc["messages"][:59]), meta)[0] is None)
 ok("category mix covers all six in 20 rows", {m["category"] for m in gs.plan(20, 0, 7)} == set(gs.CATEGORIES))
+ok("plan --only-categories restricts the mix", {m["category"] for m in gs.plan(10, 0, 7, {"multi-peer", "supersession"})} == {"multi-peer", "supersession"})
 import gen_summary_chosen as gc  # noqa: E402
 import llm_backend as be  # noqa: E402,F811
 legacy = {"c1-s0": {"id": "c1-s0", "summary": "Complete sentence.", "words": 2, "previous_from": None},
@@ -344,6 +345,10 @@ if not QUICK:
         r = sh("eval_summary.py", "--chains", chains, "--ids-from", ds + "_eval.sft.jsonl", "--model", "mock-bullety", "--base", f"http://127.0.0.1:{p_or}/v1", "--out", ev_b, "--kind", "short")
         r = sh("eval_summary.py", "compare", ev_out, ev_b)
         ok("eval_summary compare shows the bullet rows of the bullety model", r.returncode == 0 and "bullet_rows" in r.stdout and json.load(open(os.path.join(tmp, "eval_bullety.summary.json")))["short"]["bullet_rows"] > 0, r.stdout[-400:])
+        ok("eval summary carries per-category / per-k breakdowns", "by_category" in summ.get("short_breakdown", {}) and summ["short_breakdown"]["by_k"].get("0", {}).get("n"))
+        r = sh("build_summary_dataset.py", "--chains", chains, "--chosen", cho, "--out", ds + "_pinned", "--eval-chains", ds + "_eval.sft.jsonl")
+        ev2 = [json.loads(l) for l in open(ds + "_pinned_eval.sft.jsonl")]
+        ok("build --eval-chains pins the eval set to the given chains", r.returncode == 0 and {x["chain"] for x in ev2} == {x["chain"] for x in ev}, r.stdout[-300:])
         r = sh("eval_summary.py", "rescore", ev_out, "--chains", chains)
         ok("eval_summary rescore", r.returncode == 0 and json.load(open(os.path.join(tmp, "eval_mock.summary.json"))).get("rescored") is True, r.stdout[-200:])
         # the trainer's data prep accepts the built rows
