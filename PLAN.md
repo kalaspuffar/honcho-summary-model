@@ -253,3 +253,41 @@ Keep `PLAN.md` + `TRAIN.md` as the decision and failure logs from day one.
 | 2026-09-14 | q3's two fabrication flags are **real** (invented "12 episodes" where the chain says ten → eight, plus a "no, she would stick with…" self-correction). Smoke: 0 in 4 runs. Ship decision unchanged. Open question (Daniel): would Qwen3-8B gain from the 243-row v2 set where Qwen3.5 did not? Free to test (GPU + two evals); expectation from the Qwen3.5 increment is no measurable change, with the v2 set's 0.8 ceiling possibly shortening q3's output. Success = carry ≥ smoke, 0 over-limit, 0 fabrication, ratio ≤ 0.76 on the pinned eval, two runs. | |
 | 2026-09-14 | **Qwen3-8B × 243 rows: no gain** (carry 0.84/0.88, multi-peer edge gone, shorts shorter/longs longer — it copies the v2 length distribution). Four models, one eval (TRAIN.md "Final comparison"). **Project ships `summary-smoke`**; experiments closed. Data lesson stands on both bases: ~100 rows set the behaviour; the dataset's length target is the lever, not the base. Follow-ups if ever needed, in order: length-preference DPO on existing pairs (greedy pads; v2/q3 chase the limit), a chain-cascade study (why an early slip is never recovered — the base-prev variant was meant to teach exactly this and got 41 rows), periodic live harness runs on the production slot. | Total Anthropic spend ≈ $47. |
 | 2026-09-14 | **Untrained Qwen3-8B measured** (TRAIN.md Phase 0 addendum): a working baseline (carry 0.80, new 0.905, 5/40 cut at 1500, 2× slower on long) — the smoke model is better on every axis but by a moderate margin; without thinking Qwen3-8B stops merging (carry 0.60). Fallback recommendation if the fine-tune is ever off: `qwen3:8b` + cap 1500, never `qwen3.5:9b`. The §0.4 gate would still have said "train" for Qwen3-8B (dropped facts 20 %, truncation 12 %), but with the smoke shipping it is moot. | Answers Daniel's question "is the smoke better than a pure qwen3:8b?" — yes, measured, on carry, new, long coverage, truncation and latency. |
+
+## 11. Next phase proposal — "retention" (written 2026-09-14, not started)
+
+**Where the remaining loss is.** On the pinned eval the shipped model keeps 93–97 % of earlier facts at each
+step, and that compounds: carry 0.93–0.97 at step 1 falls to 0.80–0.85 by step 4. A fact dropped at step k is
+absent from every later prompt (the prompt holds only the previous summary and 20 new messages), so it can
+never be recovered — the "cascade" is arithmetic, not a bug. The only lever is per-step retention. SFT has
+reached its ceiling here on both bases and at 94 and 243 rows: it shows the model good summaries but never
+shows it *which* of its own habits loses facts. That is exactly what a preference signal expresses.
+
+**Step 1 — fact-retention DPO (the one DPO case worth running; ~$5, 1 GPU-hour).**
+Pairs with an identical prompt: chosen = the teacher's summary that keeps every fact; rejected = the shipped
+model's own summary for the same prompt that dropped some (or padded). 46 such pairs already exist
+(`base_prev` rows ↔ `prev_smoke.jsonl`); generating the teacher side for *every* step the smoke model has
+produced (191 steps in `prev_smoke.jsonl`) adds ~150 more for ≈ $5 at batch rate. Train on top of the smoke
+adapter (`train_lora.py --stage dpo`, lr sized for ~200 pairs per TRAIN.md), same pinned eval, two runs.
+Success: per-step carry at k ≥ 3 up by more than the run spread, 0 over-limit, 0 fabrication, length ratio
+≤ 0.75 (the same pairs also penalise padding: greedy showed the model *can* carry 1.0 when it writes to the
+limit; the preference teaches it to carry without padding).
+
+**Step 2 — a bigger ruler (≈ $3).** 10 eval chains resolve changes of ~0.05; step 1's expected gain is that
+size. 20 more eval-only chains (no teacher summaries needed) bring resolution to ~0.03. Do this before step 1's
+eval so the result is a result.
+
+**Step 3 — base choice under the new recipe (GPU only).** Qwen3-8B carried more on multi-peer at 94 rows but
+fabricated once and wrote longer; the retention DPO addresses both failure modes. Run step 1 on both bases;
+ship the better. (Qwen3-8B also has the better untrained fallback behaviour — Phase 0 addendum.)
+
+**Step 4 — production-informed categories (read-only, $0 generation).** Periodic `honcho_summary_harness.py`
+runs against the live slot on synthetic chains catch drift; a read-only look at *where* real sessions lose facts
+(never their content — PLAN §2 privacy rule) can add a synthetic category the mix lacks (e.g. very long
+assistant turns, code/tables in messages, language switches).
+
+**Not proposed:** more SFT rows (measured twice, both bases: no gain); a larger base (nothing >9B fits the
+serving budget on node7 alongside the dialectic model); the combined dialectic+summary model (dropped).
+
+Budget for steps 1–3: ≈ $8–10 Anthropic, ~4 GPU-hours, two evenings. Expected outcome: carried coverage at deep
+steps from ~0.82 to ~0.9, and a length behaviour that stays put when the operator changes the cap.
