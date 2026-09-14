@@ -219,3 +219,24 @@ production. Base-model choice is not where the remaining variance lives — chai
 backed down again — no, she would stick with eight"* — the distractor value asserted, wrapped in a
 self-correcting narration the smoke model never produces. Carried into s3. First genuine fabrication in the
 project's evals (all earlier flags were matcher artifacts). Counts against q3 for the slot.
+
+**Qwen3-8B on the 243-row v2 set (2026-09-14): more data did not help here either.** Two runs @1500:
+carry 0.84 / 0.88 (q3 on 94 rows: 0.92 / 0.91; smoke 0.86 / 0.89); multi-peer back to 0.81 / 0.78 (q3-94: 0.91 / 0.95);
+shorts shortened to ratio 0.70 (the v2 rows' 0.8 ceiling), longs lengthened to 892–1083 words (the v2 long rows'
+957 median) with new-coverage 1.0 / 1.0; 0 over-limit, 0 fabrication, 1 think leak; fastest short latency (9.6 s).
+The model copies the dataset's length distribution faithfully and its coverage does not move with row count.
+
+### Final comparison — all four models, pinned 10-chain eval, short slot @1500, two runs each
+
+| | rows / base | carry | multi-peer carry | ratio | over / cut / fab | long new |
+|---|---|---|---|---|---|---|
+| **summary-smoke** (ship) | 94 / Qwen3.5-9B | 0.86, 0.89 | 0.81, 0.80 | 0.70 | 0 / 0 / 0 | 0.98, 0.96 |
+| summary-v2 | 243 / Qwen3.5-9B | 0.905 (1 run) | 0.67 | 0.81 (chases the limit) | 3 / 1 / 0 | 1.0 |
+| summary-q3 | 94 / Qwen3-8B | 0.92, 0.91 | 0.91, 0.95 | 0.76 | 0–3 / 0 / 0–2 (real) | 0.96, 0.91 |
+| summary-q3-v2 | 243 / Qwen3-8B | 0.84, 0.88 | 0.81, 0.78 | 0.70 | 0 / 0 / 0 | 1.0, 1.0 |
+
+Three lessons, each now shown twice: (1) ~100 rows set the behaviour, 2.6× the rows changes nothing outside
+noise on either base; (2) the model copies the training rows' length distribution, so the data's length target
+is the lever for the token cap, not the base; (3) the remaining variance is chain cascades (one early slip
+inherited downstream) and rare collapses — not fixable by more of the same data. The one base-related
+difference (q3 carries more on multi-peer at 94 rows) came with a real fabrication and longer output.

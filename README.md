@@ -11,8 +11,11 @@ produced the terse dialectic model and the lessons this repo starts from.
 `SUMMARY_MAX_TOKENS_SHORT=1500` and Modelfile temperature 0.1 (PLAN §10, TRAIN.md): 94 SFT rows from 27
 chains; on the pinned 10-chain eval 0 truncations, 0 over-limit, carried-fact coverage 0.86–0.93 vs 0.49 for
 the base (which returns nothing at all in the short slot), no format failures; verified live through Honcho.
-A +30-chain increment (243 rows, `summary-v2`) was measured and brought no gain outside noise — the
-150-chain run is cancelled. Remaining: the combined dialectic + summary model (PLAN §9 step 4).
+Measured and not shipped: a +30-chain increment (243 rows, `summary-v2`), Qwen3-8B on the same 94 rows
+(`summary-q3`: more multi-peer carry, but longer, one real fabrication) and Qwen3-8B on 243 rows
+(`summary-q3-v2`: no gain). Lesson, shown on both bases: ~100 rows set the behaviour and the dataset's
+length target, not the base, is the lever against Honcho's token cap. Experiments closed (TRAIN.md "Final
+comparison"); the combined dialectic + summary model was dropped as not a priority.
 `PLAN.md` is the single source of truth (§10 decision log); `python3 verify_pipeline.py` runs the whole
 pipeline against mock servers at $0 and must print GO.
 
