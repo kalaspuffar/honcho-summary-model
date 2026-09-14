@@ -145,3 +145,19 @@ limit rises to ≤ 1125 but these chunks are content-limited at 500–700 words,
 offline for free with `eval_summary.py --max-tokens-short 1500`; (2) the one DPO experiment PLAN §7 reserved:
 prompt-identical pairs teacher-within-budget vs the model's own output already exist (base_prev rows ↔
 `prev_smoke.jsonl`), no generation cost; (3) accept and ship the smoke model.
+
+**Cap test 2026-09-14, `--max-tokens-short 1500` (prompt limit rises to ≤ 1125 words), one run per model, same 10 chains:**
+
+| short, 40 steps | smoke @1000 (2 runs) | smoke @1500 | v2 @1000 (2 runs) | v2 @1500 |
+|---|---|---|---|---|
+| cut at max_tokens | 1, 2 | **0** | 5, 4 | 1 (c00016-s3 wrote 1142 words) |
+| over limit | 1, 1 | **0** | 2, 4 | 3 |
+| median words / ratio | 506 / 0.80, 490 / 0.74 | 488 / **0.70** | 558 / 0.84, 508 / 0.79 | 520 / 0.81 (deep steps 940–1140 w) |
+| carry (median) | 0.92, 0.93 | 0.86 | 0.985, 0.94 | 0.905 |
+
+The smoke model does **not** chase the higher limit (same word count, ratio falls to 0.70): the cap stops
+binding and truncation disappears. v2 does chase it at deep steps (941, 970, 1042, 1142 words) and still
+overshoots; it also produced a 22-word collapse at c00015-s0 (new 0.04) that poisoned the chain. The smoke's
+carry 0.86 in this run is one chain-level cascade (c00016: s1 dropped to 0.7 and every later step inherits it;
+0.77–1.0 in the two @1000 runs) — chain variance, not attributable to the cap without a repeat. Known variance
+for both models: an early slip cascades through the chain; c00022 (multi-peer) collapses in ~1 of 3 runs.
