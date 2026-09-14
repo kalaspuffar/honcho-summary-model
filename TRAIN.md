@@ -102,3 +102,10 @@ Honcho's `create_messages` assigns `seq_in_session` per message and `get_message
 so the range logic reads correctly; what went over the wire is unknown → `log_proxy.py` between Honcho and
 Ollama, re-run the chain in batch mode and `--one-by-one`, `log_proxy.py diff` the s1 request. The harness now
 records which message each stored summary is anchored to (`anchor_ok`).
+
+**Resolved 2026-09-14.** Re-ran c00022 live twice with `log_proxy.py` in front of Ollama: batch delivery and
+`--one-by-one` both anchored every summary at the block's last message; `log_proxy.py diff` on the s1 request:
+20/20 lines of block 1 present, one user turn, previous = stored s0, `max_tokens` 1000, no temperature, no
+extra fields (Honcho's limit 576 words vs the harness's token-estimate 587). s1 scored 1.0/0.83 (batch) and
+0.91/0.61 (single). The 2026-09-13 collapse was a one-off generation at temperature 0.1 on the weakest
+category — 1 bad in 5 attempts at that step. Plumbing and prompt parity are verified end to end.

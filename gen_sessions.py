@@ -44,9 +44,12 @@ CATEGORIES = {
     "chit-chat":      "light small talk with very little factual content — at most 1–2 ledger facts per block; pleasant, meandering, no invented density",
     "multi-peer":     "three peers; attribution matters — several facts belong to one peer and would be wrong attributed to another; make the peers disagree at least twice",
 }
-MIX = [("dense-facts", 5), ("preference", 3), ("supersession", 3), ("long-tail-merge", 4), ("chit-chat", 2), ("multi-peer", 3)]
+# v2 mix (2026-09-14, PLAN §10): the smoke model's weak spots were multi-peer attribution, carried facts at
+# k >= 4 and superseded values in long summaries, so multi-peer and supersession are up, chit-chat down, and
+# chains are longer (deep carry needs 100-120 messages). Smoke mix was 5/3/3/4/2/3 with lengths 60-120.
+MIX = [("dense-facts", 4), ("preference", 2), ("supersession", 4), ("long-tail-merge", 4), ("chit-chat", 1), ("multi-peer", 5)]
 SHAPES = ["user-assistant", "user-assistant", "user-assistant", "two-people"]     # multi-peer forces three-people
-LENGTHS = [60, 60, 80, 80, 100, 120]
+LENGTHS = [80, 100, 100, 120, 120]
 
 # Broad, generic theme hints so small runs spread out; the teacher picks the concrete sub-domain
 # and invents everything in it. Nothing here is a real person's topic list (PLAN §2).
