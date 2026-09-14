@@ -110,3 +110,38 @@ extra fields (Honcho's limit 576 words vs the harness's token-estimate 587). s1 
 0.91/0.61 (single). The 2026-09-13 collapse was a one-off generation at temperature 0.1 on the weakest
 category — 1 bad in 5 attempts at that step. Plumbing and prompt parity are verified end to end.
 | 2026-09-14 | stage 3 cost reporting | `submit` printed the estimate for the first wave only ($0.53); the remaining waves cost $3.16 more — "waves are free" was wrong as stated. The whole job costs one generation per step plus the compress retries; the smoke's teacher pass came to $3.68 for 121 steps (~3 ¢/step). | `submit` now prints WHOLE JOB ≈ (all remaining steps × this wave's per-step cost × 1.3 for retries); `fetch --waves` prints a running total and a final sum. |
+
+## Increment run v2 — 2026-09-14 (+30 chains, pinned eval; verdict: NOT a measurable improvement)
+
+Data: 57 chains → 378 teacher rows (315 good; 33 steps given up at the 0.8 ceiling, all deep steps of dense
+chains) → **243 train rows** (187 short, 56 long; 43 chains) vs the smoke's 94; eval pinned to the smoke's 10
+chains (40 short + 10 long steps); 4 new chains dropped for a shared peer name. Teacher pass $10.16 (estimate
+$8.36 → factor 1.3 → 1.6), chains $4.73. SFT 2 epochs, 122 steps, 23 min, eval loss ep2 0.5023.
+
+Two eval runs per model on the identical 10 chains (temperature 0.1):
+
+| short, 40 steps | smoke #1 | smoke #2 | v2 #1 | v2 #2 |
+|---|---|---|---|---|
+| carry (median) | 0.92 | 0.93 | 0.985 | 0.94 |
+| new (median) | 1.0 | 1.0 | 1.0 | 1.0 |
+| multi-peer carry | 0.76 | 0.76 | 0.945 | 0.70 |
+| k=4 carry | 0.76 | 0.94 | 0.83 | 0.82 |
+| limit ratio (median) | 0.80 | 0.74 | 0.84 | 0.79 |
+| over limit / cut at max_tokens | 1 / 1 | 1 / 2 | 2 / 5 | 4 / 4 |
+| long new (10 steps) | 0.946 | 0.952 | 1.0 | 1.0 |
+
+Reading: carry +0.03–0.06 lies inside the run-to-run spread (smoke 0.01, v2 0.04); multi-peer swings 0.70–0.95
+between two v2 runs (c00022-s1 collapsed again in v2 #2: 275 words, carry 0.33 — the same step as the live
+one-off, now 2 collapses in 7 attempts across models); k ≥ 3 unchanged. Long new-coverage +5 points is the
+only consistent change and its medians sit at the ceiling. **Length got worse, not better**: v2 writes longer
+(median ratio 0.79–0.84 vs 0.74–0.80) and is cut at the 1000-token cap on 4–5/40 short steps vs 1–2/40,
+although its training rows were capped at 0.8 (median 0.76). The model does not count words; its length
+follows the content it covers, and 750 words is Honcho's cap in tokens. Conclusion as in the dialectic
+project: ~100 rows set the behaviour; 2.6× the rows moved nothing outside noise. Do not scale to 150.
+
+Open defect for BOTH models: truncation at `max_tokens=1000` on dense deep steps (2–12 %), each losing the
+newest chunk. Candidates, cheapest first: (1) operator setting `SUMMARY_MAX_TOKENS_SHORT=1500` — the word
+limit rises to ≤ 1125 but these chunks are content-limited at 500–700 words, so the cap stops binding; test
+offline for free with `eval_summary.py --max-tokens-short 1500`; (2) the one DPO experiment PLAN §7 reserved:
+prompt-identical pairs teacher-within-budget vs the model's own output already exist (base_prev rows ↔
+`prev_smoke.jsonl`), no generation cost; (3) accept and ship the smoke model.

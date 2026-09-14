@@ -436,7 +436,7 @@ def cmd_submit(a):
     # smoke needed (~0.6 per k>=1 short step at ~half the price). 2026-09-14: the smoke's first wave read $0.53 and
     # the remaining waves cost $3.16 more — the per-wave number alone misled.
     per_step = usd / max(1, len(jobs))
-    whole = left * per_step * 1.3
+    whole = left * per_step * 1.6      # measured 2026-09-14: estimate $8.36 at x1.3, actual $10.16 (+21 %) -> x1.6
     print(f"{spec} batch wave: {len(jobs)} steps now ({sum(1 for j in jobs if 'effort' in j)} compress passes) ≈ ${usd:.2f}; "
           f"{left - len(jobs)} more steps wait for later waves — WHOLE JOB ≈ ${whole:.2f} over all waves incl. retries (reference only)")
     b = be.batch_submit(spec, jobs, effort=a.effort)
