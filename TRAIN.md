@@ -161,3 +161,20 @@ overshoots; it also produced a 22-word collapse at c00015-s0 (new 0.04) that poi
 carry 0.86 in this run is one chain-level cascade (c00016: s1 dropped to 0.7 and every later step inherits it;
 0.77–1.0 in the two @1000 runs) — chain variance, not attributable to the cap without a repeat. Known variance
 for both models: an early slip cascades through the chain; c00022 (multi-peer) collapses in ~1 of 3 runs.
+
+**Repeat + greedy, 2026-09-14 (smoke, 10 eval chains, short slot):**
+
+| | @1000 t0.1 (2 runs) | @1500 t0.1 (2 runs) | @1500 **t0 (greedy)** |
+|---|---|---|---|
+| cut at max_tokens / over limit | 1–2 / 1 | **0 / 0** | 2 / 3 |
+| median words / ratio | 490–506 / 0.74–0.80 | 464–488 / **0.70–0.71** | 631 / 0.85 (deep steps 1050–1130 of 1125; chit-chat c00025-s2 padded to 1127) |
+| carry (median) | 0.92, 0.93 | 0.86, 0.89 | **1.00** (multi-peer 0.98, every k 1.0) |
+| collapses | c00022 (1 of 2) | c00016-l0 new 0.46 (1 of 2) | none |
+| latency | 11 s | 11 s | 17 s |
+
+Greedy decoding removes the chain collapses and carries everything, but fills the stated limit — it pads a
+chit-chat chunk to the limit and is cut again at deep steps. Temperature 0.1 stays concise (does not chase
+the limit) at the price of ~0.04 carry versus @1000 and an occasional early slip that cascades. The hard
+requirement is "never cut" (a cut loses the newest chunk outright), so **ship: smoke, temperature 0.1,
+`SUMMARY_MAX_TOKENS_SHORT=1500`.** Greedy-with-padding is the one behaviour a small length-preference (DPO §7)
+could target later: pairs concise-vs-padded for the same prompt exist for free in these eval files.

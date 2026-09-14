@@ -7,10 +7,12 @@ dense, complete, within the word limit and grounded, served by Ollama through th
 OpenAI-compatible path Honcho already uses. Sister project of `honcho-dialectic-model`, which
 produced the terse dialectic model and the lessons this repo starts from.
 
-**Status (2026-09-13): smoke model trained and passing the PLAN §6 gate.** 27 chains → 94 SFT rows →
-`summary-smoke` (TRAIN.md "Smoke run"): 0 over-limit, carried-fact coverage 0.85 vs 0.49 for the base,
-no format failures, verified live through Honcho. Open: one live step got a prompt the harness did not
-expect (TRAIN.md "Live check"); next is the 150-chain run aimed at multi-peer and deep-carry weak spots.
+**Status (2026-09-14): `summary-smoke` cleared for the production summary slot** with Honcho
+`SUMMARY_MAX_TOKENS_SHORT=1500` and Modelfile temperature 0.1 (PLAN §10, TRAIN.md): 94 SFT rows from 27
+chains; on the pinned 10-chain eval 0 truncations, 0 over-limit, carried-fact coverage 0.86–0.93 vs 0.49 for
+the base (which returns nothing at all in the short slot), no format failures; verified live through Honcho.
+A +30-chain increment (243 rows, `summary-v2`) was measured and brought no gain outside noise — the
+150-chain run is cancelled. Remaining: the combined dialectic + summary model (PLAN §9 step 4).
 `PLAN.md` is the single source of truth (§10 decision log); `python3 verify_pipeline.py` runs the whole
 pipeline against mock servers at $0 and must print GO.
 
