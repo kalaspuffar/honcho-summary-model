@@ -109,3 +109,4 @@ records which message each stored summary is anchored to (`anchor_ok`).
 extra fields (Honcho's limit 576 words vs the harness's token-estimate 587). s1 scored 1.0/0.83 (batch) and
 0.91/0.61 (single). The 2026-09-13 collapse was a one-off generation at temperature 0.1 on the weakest
 category — 1 bad in 5 attempts at that step. Plumbing and prompt parity are verified end to end.
+| 2026-09-14 | stage 3 cost reporting | `submit` printed the estimate for the first wave only ($0.53); the remaining waves cost $3.16 more — "waves are free" was wrong as stated. The whole job costs one generation per step plus the compress retries; the smoke's teacher pass came to $3.68 for 121 steps (~3 ¢/step). | `submit` now prints WHOLE JOB ≈ (all remaining steps × this wave's per-step cost × 1.3 for retries); `fetch --waves` prints a running total and a final sum. |

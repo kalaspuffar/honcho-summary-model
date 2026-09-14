@@ -426,8 +426,13 @@ def cmd_submit(a):
         print(f"nothing submittable: {left} steps remain" + (" (their previous steps failed — fix/retry those)" if left else " — all done"))
         return 0
     usd, _, _ = be.estimate_usd(spec, jobs, int(sum(m["output_words"] for m in metas) / len(metas) * TARGET_RATIO * 1.4), batch=True)
-    print(f"{spec} batch wave: {len(jobs)} steps now ({sum(1 for j in jobs if 'effort' in j)} compress passes), "
-          f"{left - len(jobs)} wait for a later wave; estimate ≈ ${usd:.2f} (reference only)")
+    # the whole job, not just this wave: every remaining step at this wave's average, plus the compress passes the
+    # smoke needed (~0.6 per k>=1 short step at ~half the price). 2026-09-14: the smoke's first wave read $0.53 and
+    # the remaining waves cost $3.16 more — the per-wave number alone misled.
+    per_step = usd / max(1, len(jobs))
+    whole = left * per_step * 1.3
+    print(f"{spec} batch wave: {len(jobs)} steps now ({sum(1 for j in jobs if 'effort' in j)} compress passes) ≈ ${usd:.2f}; "
+          f"{left - len(jobs)} more steps wait for later waves — WHOLE JOB ≈ ${whole:.2f} over all waves incl. retries (reference only)")
     b = be.batch_submit(spec, jobs, effort=a.effort)
     path = be.write_manifest(KIND, {"batch_id": b["id"], "model": str(spec), "model_alias": a.model, "n": len(jobs), "out": out,
                                     "chains": os.path.abspath(a.chains), "rejected": os.path.abspath(a.rejected) if a.rejected else None,
@@ -453,6 +458,9 @@ def cmd_status(a):
     return rc
 
 
+SPENT = [0.0]     # running total across the waves of one `fetch --waves` invocation
+
+
 def _fetch_one(path, poll, no_wait):
     m = json.load(open(path))
     print(f"manifest {path}: batch {m['batch_id']} {m['model']} n={m['n']} -> {m['out']}")
@@ -476,9 +484,10 @@ def _fetch_one(path, poll, no_wait):
             row["compressed_from_words"] = meta["compressed_from_words"]
         rows.append(row)
     spent = sum(be.usage_usd(spec, r.get("usage") or {}, batch=True) for r in results.values())
+    SPENT[0] += spent
     merged = write_out(m["out"], rows, invalidate_chain({r["id"]: r for r in be.read_jsonl(m["out"])}))
     report(merged, m["out"])
-    print(f"usage-based spend for this batch ≈ ${spent:.3f}")
+    print(f"usage-based spend for this batch ≈ ${spent:.3f}; running total this fetch ≈ ${SPENT[0]:.3f}")
     return m
 
 
@@ -502,6 +511,7 @@ def cmd_fetch(a):
         print(f"-- wave {wave + 1}")
         if _fetch_one(be.newest_manifest(KIND), a.poll_interval, False) is None:
             return 1
+    print(f"all waves done; usage-based spend across them ≈ ${SPENT[0]:.2f}")
     return 0
 
 
