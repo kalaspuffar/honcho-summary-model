@@ -240,3 +240,26 @@ noise on either base; (2) the model copies the training rows' length distributio
 is the lever for the token cap, not the base; (3) the remaining variance is chain cascades (one early slip
 inherited downstream) and rare collapses — not fixable by more of the same data. The one base-related
 difference (q3 carries more on multi-peer at 94 rows) came with a real fabrication and longer output.
+
+### Phase 0 addendum — untrained `qwen3:8b` (2026-09-14, pinned 10-chain eval, short cap 1500)
+
+Unlike untrained Qwen3.5-9B (which returned nothing in the short slot), untrained Qwen3-8B produces real
+summaries: its thinking finishes inside 1500 tokens on most steps (`answered_in_thinking_rows` 0) and its prose
+has no bullets, meta lines or think leaks. `--reasoning-effort none` IS honoured by Ollama for Qwen3 (latency
+10 s, no reasoning) — but without thinking it stops merging.
+
+| short, 40 steps | qwen3:8b thinking (as Honcho calls it) | qwen3:8b no-think (`reasoning_effort=none`) | summary-smoke |
+|---|---|---|---|
+| carry (median) | 0.80 | 0.60 (dense 0.35, k ≥ 3 0.28–0.37) | 0.86, 0.89 |
+| new (median) | 0.905 | 1.0 | 1.0 |
+| cut at 1500 / over limit | 5 / 0 | 1 / 2 | 0 / 0 |
+| median words | 354 | 391 | 464–488 |
+| format flags | 0 | 0 | 0 |
+| latency short / long | 15.6 s / 36.6 s | 10.0 s / 22.4 s | 10.9 s / 16.1 s |
+| long new (10) | 0.857 | 0.816 | 0.96, 0.98 |
+
+Verdict: **the smoke model beats untrained Qwen3-8B on every measured axis** — carried facts +0.06–0.09, new
+facts +0.1, long-summary coverage +0.1, zero truncation vs 12 %, 1.4× faster on short and 2.3× on long — but the
+margin is moderate, not the night-and-day gap against Qwen3.5. At Honcho's default 1000 cap the thinking base
+would be cut far more often (its thinking already costs 5/40 at 1500). If the fine-tune were ever unavailable,
+`qwen3:8b` with the 1500 cap is the fallback to configure, not `qwen3.5:9b`.
