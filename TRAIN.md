@@ -213,3 +213,9 @@ Neither the carry gain (≈ noise) nor the losses are decisive; at the default 1
 the more truncation-prone of the two. Decision: **smoke stays the ship candidate** (4 runs, 0 over-limit,
 0 fabrication, shortest output); q3 kept as the alternative if multi-peer robustness turns out to matter in
 production. Base-model choice is not where the remaining variance lives — chain cascades are.
+
+**q3 fabrication rows verified (2026-09-14): real.** c00011-s2/s3: the chain has "ten episodes" superseded by
+"eight episodes"; q3 wrote *"she originally planned 12 episodes, not eight (as she had said earlier), but then
+backed down again — no, she would stick with eight"* — the distractor value asserted, wrapped in a
+self-correcting narration the smoke model never produces. Carried into s3. First genuine fabrication in the
+project's evals (all earlier flags were matcher artifacts). Counts against q3 for the slot.
