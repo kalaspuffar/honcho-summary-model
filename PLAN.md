@@ -319,3 +319,4 @@ prompt) and `--best-of 3` (scorer picks); `build_summary_dataset.py` DPO output 
 **What this does not buy:** a guarantee. The honest expectation from §10 is that B moves deep-step carry from
 ~0.82 toward ~0.9 and that C fixes whatever A finds (a Swedish gap, if there is one, would be the single
 largest win available). The ruler (A) is the part that makes the rest reportable to a manager.
+| 2026-09-15 | §11 steps 1–2 run ($7.76): 30-chain ruler in place (smoke carry 0.889 on both runs — a stable baseline); 142 informative pairs built. First DPO at lr 5e-6 × 18 steps did not converge (loss 0.68, margins ~0.1) — mis-sized for batch 8. Eval unchanged within spread. **Not yet a verdict on DPO**; rerun at 1.5e-5, $0. | TRAIN.md "Retention phase". |

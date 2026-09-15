@@ -263,3 +263,24 @@ facts +0.1, long-summary coverage +0.1, zero truncation vs 12 %, 1.4× faster on
 margin is moderate, not the night-and-day gap against Qwen3.5. At Honcho's default 1000 cap the thinking base
 would be cut far more often (its thinking already costs 5/40 at 1500). If the fine-tune were ever unavailable,
 `qwen3:8b` with the 1500 cap is the fallback to configure, not `qwen3.5:9b`.
+
+## Retention phase, step 1–2 — 2026-09-15 (PLAN §11)
+
+**Ruler:** +20 eval-only chains (`data/chains_eval2.jsonl`, $2.91) → 30 chains / 175 steps. The shipped model
+on it, two runs: short carry **0.889 / 0.889**, new 1.0, 0 over-limit, 0–1 cut, by step k: 0.98/0.94 → 0.88/0.89
+→ 0.79/0.88 → 0.78/0.85 → 0.88/0.77; multi-peer 0.71/0.83 (still the noisiest cell); long carry 0.78/1.0 (n=5).
+This is the baseline every later model is compared against.
+
+**Pairs:** student (smoke) on all 57 chains (`prev_smoke.jsonl`, 324 steps: 7 over-limit, 21 cut at the *1000*
+cap it was run with, carry 0.90); teacher for every student prompt, eval chains excluded ($4.85 over 3 waves).
+Build: 356 SFT rows, **142 DPO pairs** (133 dropped-facts, 8 padded, 1 format; 93 student-not-worse discarded).
+
+**DPO run:** `--lr 5e-6`, 1 epoch = 18 steps (batch 8 — I had sized the lr for batch 4). Loss 0.693 → 0.68,
+margins ±0.2, pair accuracy ~55 %: **the preference was not learned** — lr × steps ≈ 9e-5, a third of the
+≈ 2.5e-4 that saturated the dialectic DPO. Eval, two runs: carry 0.873 / 0.851 (vs 0.889 / 0.889), over-limit
+3 / 1, deep steps unchanged, long carry 0.84 / 0.91. Differences are inside the per-cell spread; the model is
+the smoke model plus noise. **Inconclusive by under-training, not a negative result.**
+
+Next (GPU only, $0): rerun with `--lr 1.5e-5` (lr × steps ≈ 2.7e-4) and let the early stop decide; the log must
+show loss falling well below 0.5 and margins > 1 before the eval is worth running. If it saturates and the
+30-chain eval still does not move carry at k ≥ 3, the DPO conclusion is negative as in the dialectic project.
