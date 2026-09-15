@@ -13,9 +13,11 @@ chains; on the pinned 10-chain eval 0 truncations, 0 over-limit, carried-fact co
 the base (which returns nothing at all in the short slot), no format failures; verified live through Honcho.
 Measured and not shipped: a +30-chain increment (243 rows, `summary-v2`), Qwen3-8B on the same 94 rows
 (`summary-q3`: more multi-peer carry, but longer, one real fabrication) and Qwen3-8B on 243 rows
-(`summary-q3-v2`: no gain). Lesson, shown on both bases: ~100 rows set the behaviour and the dataset's
-length target, not the base, is the lever against Honcho's token cap. Experiments closed (TRAIN.md "Final
-comparison"); the combined dialectic + summary model was dropped as not a priority.
+(`summary-q3-v2`: no gain). A converged fact-retention DPO on 142 on-policy pairs (`summary-dpo3`) also changed nothing outside
+noise on a 30-chain ruler. Lessons, shown on both bases: ~100 rows set the behaviour; the dataset's length
+target, not the base, is the lever against Honcho's token cap; preference training moves log-probs, not
+outputs, on this data. Experiments closed (TRAIN.md "Final comparison", "Retention phase"); remaining ideas
+are new session *dimensions* (PLAN §12 A/C), measured before generated.
 `PLAN.md` is the single source of truth (§10 decision log); `python3 verify_pipeline.py` runs the whole
 pipeline against mock servers at $0 and must print GO.
 

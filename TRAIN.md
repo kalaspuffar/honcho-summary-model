@@ -284,3 +284,24 @@ the smoke model plus noise. **Inconclusive by under-training, not a negative res
 Next (GPU only, $0): rerun with `--lr 1.5e-5` (lr × steps ≈ 2.7e-4) and let the early stop decide; the log must
 show loss falling well below 0.5 and margins > 1 before the eval is worth running. If it saturates and the
 30-chain eval still does not move carry at k ≥ 3, the DPO conclusion is negative as in the dialectic project.
+
+**DPO converged (2026-09-15):** `dpo2` (lr 1.5e-5, 1 epoch): loss 0.69 → 0.58, margins ≤ 0.6. `dpo3` (3 epochs,
+54 steps): loss → 0.03, margins 3–8, pair accuracy 100 % from step 20 — fully learned. Signature: rejected
+log-probs pushed to −30…−70, chosen mostly *also* down (−5…−15) — the ordering was learned by suppressing the
+rejected texts, not by raising the chosen ones, so sampled outputs need not change. They didn't:
+
+| short, 30 chains × 2 runs | smoke | dpo2 | dpo3 |
+|---|---|---|---|
+| carry (median) | 0.889, 0.889 | 0.875, 0.900 | 0.859, 0.900 |
+| carry k=3 / k=4 | 0.79–0.88 / 0.78–0.85 | 0.84–0.85 / 0.81–0.85 | 0.83–0.88 / 0.81 |
+| multi-peer carry | 0.71, 0.83 | 0.80, 0.83 | 0.79, 0.79 |
+| ratio / over limit | 0.71 / 0, 0 | 0.72–0.74 / 1, 3 | 0.74 / 1, 3 |
+| long carry (n=5) | 0.78, 1.0 | 0.96, 0.90 | 0.90, 0.94 |
+
+Every difference sits inside the two-run spread; the only consistent movement is length (+3 points of ratio,
+1–3 over-limit rows) — the wrong direction. **Verdict: fact-retention DPO on 142 on-policy pairs does not move
+deep-step carry.** Same conclusion as the dialectic project's DPO ablation, now on a second task with a
+converged run and a 30-chain ruler. §11 step 3 (the Qwen3 base under the same recipe) is moot.
+
+The cheap plan (§11) is closed: $7.76 spent, one durable asset (the 30-chain ruler with a stable baseline) and
+one durable negative (SFT + DPO on this data distribution is at its ceiling). The shipped model stays.
