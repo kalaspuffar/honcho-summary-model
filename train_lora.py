@@ -20,14 +20,14 @@ Stages
           separates a model problem from an Ollama template/parser problem)
 
 Usage (GPU host, Unsloth venv):
-  python3 train_lora.py --stage strip  --out /data/smoke/qwen35-9b-text        # once per host
-  python3 train_lora.py --stage check  --model /data/smoke/qwen35-9b-text --data data/dataset_train.sft.jsonl
-  python3 train_lora.py --stage sft    --model /data/smoke/qwen35-9b-text --data data/dataset_train.sft.jsonl \
+  python3 train_lora.py --stage strip  --out runs/base-qwen35-9b-text   # once per host
+  python3 train_lora.py --stage check  --model runs/base-qwen35-9b-text --data data/dataset_train.sft.jsonl
+  python3 train_lora.py --stage sft    --model runs/base-qwen35-9b-text --data data/dataset_train.sft.jsonl \
                                             --eval-data data/dataset_eval.sft.jsonl --out runs/v1-sft
   python3 train_lora.py --stage merge  --adapter runs/v1-sft/checkpoint-125 --out runs/v1-sft-ep1
   python3 train_lora.py --stage dpo    --sft runs/v1-sft/merged --data data/dataset_train.dpo.jsonl --out runs/v1-dpo
   python3 train_lora.py --stage export --model runs/v1-dpo/merged --out runs/v1-gguf
-  12 GB card: --load-bits 4 --max-seq 6144.   48 GB A6000: --load-bits 16 --max-seq 8192.
+  12 GB card: --load-bits 4 --max-seq 6144.   48 GB card: --load-bits 16 --max-seq 8192.
   Base (PLAN §3.4): the STRIPPED text-only Qwen3.5-9B from --stage strip. Qwen/Qwen3-8B is the
   documented fallback only if Qwen3.5 hits a LoRA-format problem; pass it explicitly if so.
 
@@ -576,7 +576,7 @@ def main():
     a = ap.parse_args()
 
     if a.stage in ("check", "sft", "export", "sample") and not a.model:
-        sys.exit("--model required: the text-only checkpoint dir from --stage strip (e.g. /data/smoke/qwen35-9b-text)")
+        sys.exit("--model required: the text-only checkpoint dir from --stage strip (e.g. runs/base-qwen35-9b-text)")
     if a.stage == "check":
         if not a.data: sys.exit("--data required")
         return run_check(a.model, a.data, a.max_seq, a.tool_turns)

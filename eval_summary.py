@@ -4,7 +4,7 @@ the exact Honcho prompt via an OpenAI-compatible /v1 (Ollama or OpenRouter) and 
 summary_scoring.py. Previous summary = the model's OWN output for the previous step (honest setting).
 
   python3 eval_summary.py --chains data/chains.jsonl --ids-from data/dataset_eval.sft.jsonl \
-      --model qwen3.5:9b --base http://node7.ea.org:11434/v1 --out results/eval_base.jsonl --answer-from-reasoning
+      --model qwen3.5:9b --base http://localhost:11434/v1 --out results/eval_base.jsonl --answer-from-reasoning
   python3 eval_summary.py --chains data/chains.jsonl --ids-from data/dataset_eval.sft.jsonl \
       --model summary-v1 --out results/eval_v1.jsonl
   python3 eval_summary.py compare results/eval_base.jsonl results/eval_v1.jsonl

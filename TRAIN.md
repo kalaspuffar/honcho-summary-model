@@ -3,7 +3,7 @@
 Nothing trained yet (2026-09-12). Carry-overs from honcho-dialectic-model/TRAIN.md that apply here
 unchanged — read them before the first run:
 
-- Base = the stripped text-only Qwen3.5-9B (`train_lora.py --stage strip --out /data/smoke/qwen35-9b-text`).
+- Base = the stripped text-only Qwen3.5-9B (`train_lora.py --stage strip --out runs/base-qwen35-9b-text`).
   Never Qwen3-8B, never the Ollama tag / VL Hub repo as `--model`.
 - Ollama serves the built-in qwen3.5 renderer (`<think>\n` prefill) regardless of the GGUF template
   and ignores `reasoning_effort` on 0.32.12; Honcho reaches it only via `/v1` and reads `content`.
@@ -13,13 +13,13 @@ unchanged — read them before the first run:
 - SFT only, 2 epochs, lr 2e-4, r=16. DPO adds nothing measurable at 50–150 rows (dialectic
   ablation); use it only for word-limit overshoot if SFT leaves it > 5 %.
 - Rows are dropped, never truncated, above `--max-seq`. Long-summary rows run 11–14k tokens:
-  `--max-seq 16384 --load-bits 16` on the A6000; if it does not fit, cap long targets at 2000 words.
+  `--max-seq 16384 --load-bits 16` on a 48 GB card; if it does not fit, cap long targets at 2000 words.
 - Smoke first (30 chains, < 1.5 h), full eval, then more data only against a measured gap.
 
 ## Failure log
 | Date | Stage | What failed | Fix / workaround |
 |---|---|---|---|
-| 2026-09-13 | Phase 0 (`gen_summary_rejected.py`, base `qwen3.5:9b`, node7) | Short slot 104/104 empty: `finish_reason=length`, all 1000 tokens in `<think>`, at 0.1 and at 0.7. Long slot: 14/29 truncated, 4 empty. Honcho would store nothing for shorts. | Not fixable by settings (no thinking-off switch on Ollama for Qwen3.5; 4000 tokens still truncate half the long ones). This is the failure the served-prompt SFT removes (`encode_example`, `--stage check` must show `\n</think>\n\n` first). Proceed to the smoke. |
+| 2026-09-13 | Phase 0 (`gen_summary_rejected.py`, base `qwen3.5:9b`, Ollama host) | Short slot 104/104 empty: `finish_reason=length`, all 1000 tokens in `<think>`, at 0.1 and at 0.7. Long slot: 14/29 truncated, 4 empty. Honcho would store nothing for shorts. | Not fixable by settings (no thinking-off switch on Ollama for Qwen3.5; 4000 tokens still truncate half the long ones). This is the failure the served-prompt SFT removes (`encode_example`, `--stage check` must show `\n</think>\n\n` first). Proceed to the smoke. |
 | 2026-09-13 | Phase 0 (`dialectic_s50` in the summary slot) | Answers, but terse (161 w median of ~450) and carries only ~1/3 of earlier facts; 8 % think leaks, 5 % fabrication. | Not a candidate for the slot; its outputs feed the stage 3 base-previous variant instead (PLAN §10). |
 | 2026-09-13 | scorer | Empty rows scored carry 0.0 with nothing due → base carry medians read 0. | `summary_scoring.score_summary` fixed; rescore with `eval_summary.py rescore`. |
 | 2026-09-13 | scorer | All 7 dialectic "fabrication" rows were matcher artifacts (peer name + possessive "s"; "the"+"city"; two anchors 30 words apart; near-miss distractors differing in one anchor). | `has_fact` rewritten (anchors, window, number words, peer names ignored; strict for distractors) — PLAN §10. Always re-score every results file after a scorer change: `eval_summary.py rescore <file> --chains data/chains.jsonl`. |
@@ -39,7 +39,7 @@ Order (PLAN §9), every step resume-safe and preceded by its estimate:
    `fabrication_rows`, `answered_in_thinking_rows`, `finish_length_rows`, `empty_rows`. PLAN §0.4 gate decides.
 3. `gen_summary_chosen.py submit … --rejected data/rejected.jsonl` → `fetch --waves` (one batch per step level).
 4. `build_summary_dataset.py … --eval-frac 0.33` → `data/dataset_{train,eval}.sft.jsonl` (+ `.dpo.jsonl`).
-5. GPU host: `train_lora.py --stage check --model /data/smoke/qwen35-9b-text --data data/dataset_train.sft.jsonl --max-seq 8192`
+5. GPU host: `train_lora.py --stage check --model runs/base-qwen35-9b-text --data data/dataset_train.sft.jsonl --max-seq 8192`
    (trainable tail must begin `\n</think>\n\n`; the smoke rows are ≤ 6k tokens by estimate — long teacher summaries
    come out near 800 words, not 3000 — so 8192 fits and nothing may be dropped), then
    `--stage sft --epochs 2 --lr 2e-4 --max-seq 8192 --load-bits 16 --eval-data data/dataset_eval.sft.jsonl`,
@@ -52,13 +52,13 @@ Order (PLAN §9), every step resume-safe and preceded by its estimate:
 | item | value |
 |---|---|
 | data | 94 train rows (74 short, 20 long) from 17 chains; 56 eval rows from 10 held-out chains, stratified by category, human peer names disjoint |
-| base | `/data/smoke/qwen35-9b-text`, `--load-bits 16 --max-seq 8192` (rows 890–5400 tokens, median 2022, none dropped) |
-| run | SFT 2 epochs, lr 2e-4, r=16, 48 steps, 8 min on the A6000 (6–10 s/step) |
+| base | `runs/base-qwen35-9b-text` (from `--stage strip`), `--load-bits 16 --max-seq 8192` (rows 890–5400 tokens, median 2022, none dropped) |
+| run | SFT 2 epochs, lr 2e-4, r=16, 48 steps, 8 min on a 48 GB card (6–10 s/step) |
 | eval loss | ep1 **0.4953**, ep2 0.5015 → epoch 1 (`checkpoint-24`) merged; epoch 2 already overfits slightly at 94 rows |
 | sample `--open-think` | raw output begins `\n</think>\n\n` + summary; no reasoning text |
 | export | `runs/v1-gguf` Q4_K_M → `ollama create summary-smoke -f Modelfile-smoke` |
 
-Offline eval, 10 eval chains / 50 steps, honest chaining, Honcho max_tokens 1000/4000, node7 Ollama
+Offline eval, 10 eval chains / 50 steps, honest chaining, Honcho max_tokens 1000/4000, Ollama host
 (base column scored from its reasoning text — the base's `content` is empty on every short step):
 
 | short (40 steps) | base qwen3.5:9b | summary-smoke |
@@ -83,7 +83,7 @@ Weak spots to feed the 150-chain run: carry falls with k (c00006-s4 0.77, c00017
 multi-peer chains are the weakest (new 0.67–0.92, carry 0.59–0.83; only 4 multi-peer rows in training);
 `latest_state` 0.0/0.5 on two long summaries (c00022-l0, c00018-l0) — superseded values in the long slot.
 
-## Live check — 2026-09-13 (Honcho on node7, summary slot = `summary-smoke`, scratch workspace `summary-check`)
+## Live check — 2026-09-13 (local Honcho, summary slot = `summary-smoke`, scratch workspace `summary-check`)
 
 `honcho_summary_harness.py` first contact with a real Honcho v3: workspace/peers/session creation, 20-message
 blocks, queued summariser, `GET .../summaries` all worked unchanged; every summary was stored (waits 10–85 s,

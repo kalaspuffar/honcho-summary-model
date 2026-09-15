@@ -11,7 +11,7 @@ never from a teacher (CLAUDE.md).
   python3 gen_summary_rejected.py --chains data/chains.jsonl --out data/rejected.jsonl
   python3 gen_summary_rejected.py --chains data/chains.jsonl --out data/rejected.jsonl --model dialectic_s50 --kind short
   python3 gen_summary_rejected.py --chains ... --out ... --model qwen9b --concurrency 8 [--max-usd 2]   # OpenRouter
-  OLLAMA_BASE=http://node7.ea.org:11434/v1 python3 gen_summary_rejected.py ... --temperature 0.7
+  OLLAMA_BASE=http://localhost:11434/v1 python3 gen_summary_rejected.py ... --temperature 0.7
 
 Resume-safe per chain-and-kind: a (chain, kind) whose steps are all good in --out is skipped;
 anything else is regenerated as a whole (a chain's steps depend on each other).

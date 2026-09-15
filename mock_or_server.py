@@ -29,7 +29,7 @@ SEEN = set()
 LOCK = threading.Lock()
 
 CTX = {
-    "persona": {"name": "NAME", "bio": "Runs a small home lab and keeps notes about every change."},
+    "persona": {"name": "NAME", "bio": "Keeps structured notes about every change."},
     "question": "What deadline did NAME set for the storage migration? #N",
     "observations": [
         {"date": "2026-03-01", "text": "NAME set April 25 as the deadline for migrating the NAS to Ceph.", "relevant": True},
@@ -153,7 +153,7 @@ class H(BaseHTTPRequestHandler):
             with LOCK:
                 COUNTER[0] += 1
                 k = COUNTER[0]
-            name = "Daniel"
+            name = "Alex"
             for m in msgs:
                 if m.get("role") == "user":
                     for line in m["content"].splitlines():

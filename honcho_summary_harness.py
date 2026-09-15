@@ -203,7 +203,7 @@ def main():
     p.add_argument("files", nargs="+")
     p = sub.add_parser("replay", help="re-run one stored step against Ollama with the stored previous summary"); p.set_defaults(fn=replay)
     p.add_argument("results"); p.add_argument("--step", required=True); p.add_argument("--model", required=True)
-    p.add_argument("--ollama", default=os.environ.get("OLLAMA_BASE", "http://node7.ea.org:11434/v1"))
+    p.add_argument("--ollama", default=os.environ.get("OLLAMA_BASE", "http://localhost:11434/v1"))
     p.add_argument("--chains", default="data/chains.jsonl"); p.add_argument("--n", type=int, default=3)
     p.add_argument("--temperature", type=float, default=None, help="default: none sent (Modelfile decides), as Honcho does")
     p.add_argument("--max-tokens-short", type=int, default=sp.MAX_TOKENS_SHORT_DEFAULT)

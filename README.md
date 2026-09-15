@@ -4,11 +4,11 @@ Vibe coded project to train a summary model.
 
 Synthetic-data + LoRA pipeline for a Honcho **summary** model: short/long session summaries that are
 dense, complete, within the word limit and grounded, served by Ollama through the same
-OpenAI-compatible path Honcho already uses. Sister project of `honcho-dialectic-model`, which
-produced the terse dialectic model and the lessons this repo starts from.
+OpenAI-compatible path Honcho already uses. Sister project of `honcho-dialectic-model` (also
+public on GitHub), which produced the terse dialectic model and the lessons this repo starts from.
 
-**Status (2026-09-14): `summary-smoke` cleared for the production summary slot** with Honcho
-`SUMMARY_MAX_TOKENS_SHORT=1500` and Modelfile temperature 0.1 (PLAN §10, TRAIN.md): 94 SFT rows from 27
+**Status (2026-09-14): `summary-smoke` cleared for the production summary slot** (verified in the
+owner's own Honcho deployment) with `SUMMARY_MAX_TOKENS_SHORT=1500` and Modelfile temperature 0.1 (PLAN §10, TRAIN.md): 94 SFT rows from 27
 chains; on the pinned 10-chain eval 0 truncations, 0 over-limit, carried-fact coverage 0.86–0.93 vs 0.49 for
 the base (which returns nothing at all in the short slot), no format failures; verified live through Honcho.
 Measured and not shipped: a +30-chain increment (243 rows, `summary-v2`), Qwen3-8B on the same 94 rows
@@ -20,6 +20,11 @@ outputs, on this data. Experiments closed (TRAIN.md "Final comparison", "Retenti
 are new session *dimensions* (PLAN §12 A/C), measured before generated.
 `PLAN.md` is the single source of truth (§10 decision log); `python3 verify_pipeline.py` runs the whole
 pipeline against mock servers at $0 and must print GO.
+
+**Built with agent help.** Developed by the owner together with two coding agents ("MyA" and "Fable"):
+the agents built and ran the pipeline; `PLAN.md` records the proposals, measurements and the owner's
+verdicts. All training/eval data is synthetic (PLAN §2 privacy rule) — the repo contains no real
+conversations or deployment details.
 
 | file | role | state |
 |---|---|---|
@@ -50,7 +55,7 @@ python3 verify_pipeline.py            # must print GO before a commit (--quick s
 python3 gen_sessions.py estimate --n 30 --model opus                       # ≈ $2 batch / $4.5 sync
 python3 gen_sessions.py submit   --n 30 --model opus --out data/chains.jsonl && python3 gen_sessions.py fetch
 python3 gen_summary_rejected.py --chains data/chains.jsonl --out data/rejected.jsonl \
-        --model qwen3.5:9b --base http://node7.ea.org:11434/v1               # Phase 0 measurement; honest chaining
+        --model qwen3.5:9b --base http://localhost:11434/v1                 # Phase 0 measurement; honest chaining
 python3 gen_summary_rejected.py --chains data/chains.jsonl --out data/rejected_t07.jsonl --model qwen3.5:9b --temperature 0.7
 python3 gen_summary_chosen.py estimate --chains data/chains.jsonl --model opus --rejected data/rejected.jsonl
 python3 gen_summary_chosen.py submit   --chains data/chains.jsonl --model opus --rejected data/rejected.jsonl --out data/chosen.jsonl

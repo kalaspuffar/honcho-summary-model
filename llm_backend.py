@@ -55,7 +55,7 @@ MODELS = {
     # student on OpenRouter (stage 2 / eval when the Ollama host is busy)
     "qwen9b":     ("openrouter", "qwen/qwen3.5-9b",                 0.10,  0.15),
 }
-OLLAMA_DEFAULT_BASE = "http://node7.ea.org:11434/v1"
+OLLAMA_DEFAULT_BASE = "http://localhost:11434/v1"
 OLLAMA_DEFAULT_MODEL = "qwen3.5:9b"
 
 

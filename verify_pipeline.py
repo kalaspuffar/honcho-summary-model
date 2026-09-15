@@ -144,7 +144,7 @@ s0 = samples[0]
 ok("served prompt masked, completion closes the think block", s0["labels"][:len(served)] == [-100] * len(served) and s0["input_ids"][len(served):] == want)
 ok("over-long rows dropped, never truncated", td.prepare_sft([row], FakeTok(), 10)[1] == 1)
 ok("no hardcoded split", "samples[:7]" not in defs["train_lora.py"])
-ok("resolve_base rejects the Ollama tag", (lambda: (td.resolve_base("/data/smoke/qwen35-9b-text") == "/data/smoke/qwen35-9b-text"))())
+ok("resolve_base rejects the Ollama tag", (lambda: (td.resolve_base("/abs/checkpoint-dir") == "/abs/checkpoint-dir"))())
 
 if not QUICK:
     print("== 6. backend ==")

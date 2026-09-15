@@ -6,7 +6,7 @@ see EXACTLY what Honcho sends the summary model (prompt text, max_tokens, temper
 what came back — the 2026-09-13 live check stored one summary that could not have come from the
 messages the harness thought Honcho had (TRAIN.md). Stdlib only; never writes into data/.
 
-  python3 log_proxy.py --listen 0.0.0.0:11435 --upstream http://node7.ea.org:11434 --log results/proxy-honcho.jsonl
+  python3 log_proxy.py --listen 0.0.0.0:11435 --upstream http://localhost:11434 --log results/proxy-honcho.jsonl
   # Honcho: SUMMARY_MODEL_CONFIG__OVERRIDES__BASE_URL=http://<this host>:11435/v1
   python3 log_proxy.py diff results/proxy-honcho.jsonl --chains data/chains.jsonl --chain c00022 --step s1
       # compare the logged prompt of a step with what summary_chain.build_step would have sent
@@ -135,7 +135,7 @@ def main():
     sub = ap.add_subparsers(dest="cmd")
     p = sub.add_parser("serve"); p.set_defaults(fn=serve)
     p.add_argument("--listen", default="0.0.0.0:11435")
-    p.add_argument("--upstream", default="http://node7.ea.org:11434")
+    p.add_argument("--upstream", default="http://localhost:11434")
     p.add_argument("--log", default="results/proxy.jsonl")
     p = sub.add_parser("diff"); p.set_defaults(fn=diff)
     p.add_argument("log"); p.add_argument("--chains", default="data/chains.jsonl")
